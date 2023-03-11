@@ -30,7 +30,7 @@ The indexer uses your specified JSON-RPC endpoint to fetch all the events for yo
 
 ## Limitations
 
-- Because the indexer uses JSON-RPC to fetch logs, it depends on the gateway's ability to process and return events, some providers like Infura or Alchemy limit the amount of events that can be returned in one call. Chainsauce gets around this by fetching smaller block ranges. It's best to use your own node if you encounter issues, but this **should not be the case for most people**.
+- Because the indexer uses JSON-RPC to fetch logs, it relies on the gateway's ability to filter and return blockchain events, some providers limit the amount of events that can be returned in one call. The indexer gets around this by fetching smaller block ranges. It's best to use your own node if you encounter issues, but this **should not be the case for most people**.
 
 ## Roadmap
 
