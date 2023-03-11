@@ -1,6 +1,5 @@
 import { ethers } from "ethers";
-// import fs from "node:fs/promises";
-// import path from "node:path";
+export { default as JsonStorage } from "./storage/jsonStorage.js";
 
 function debounce(func: Function, wait: number, immediate: boolean) {
   let timeout: ReturnType<typeof setTimeout> | undefined;

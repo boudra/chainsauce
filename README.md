@@ -2,8 +2,7 @@
 <strong>Chainsauce</strong>
 </h1>
 <p align="center">
-<strong>Easy to use EVM Indexer</strong>
+<strong>Lightweight and flexible EVM Indexer</strong>
 </p>
-
 
 WIP

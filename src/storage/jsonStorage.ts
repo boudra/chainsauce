@@ -2,7 +2,6 @@ import type { Storage, Subscription } from "../index";
 import { ethers } from "ethers";
 import fs from "node:fs/promises";
 import path from "node:path";
-import jsonGraphqlExpress from "json-graphql-server";
 
 type Document = { [key: string]: any };
 
@@ -13,10 +12,6 @@ export default class JsonStorage implements Storage {
   constructor(dir: string) {
     this.dir = dir;
     this.collections = {};
-  }
-
-  serve() {
-    return jsonGraphqlExpress(this.collections);
   }
 
   collection(key: string) {
@@ -67,22 +62,22 @@ export default class JsonStorage implements Storage {
   }
 
   async getSubscriptions(): Promise<Subscription[]> {
-    return this.collection("_meta/subscriptions")
+    return this.collection("_subscriptions")
       .all()
       .map((sub: any) => ({
         address: sub.address,
         contract: new ethers.Contract(sub.address, sub.abi),
-        lastBlock: sub.lastBlock,
+        fromBlock: sub.fromBlock,
       }));
   }
 
   async setSubscriptions(subscriptions: Subscription[]): Promise<void> {
-    this.collections["_meta/subscriptions"] = subscriptions.map((sub) => ({
+    this.collections["_subscriptions"] = subscriptions.map((sub) => ({
       address: sub.address,
       abi: JSON.parse(
         sub.contract.interface.format(ethers.utils.FormatTypes.json) as string
       ),
-      lastBlock: sub.fromBlock,
+      fromBlock: sub.fromBlock,
     }));
   }
 
@@ -97,13 +92,13 @@ export default class JsonStorage implements Storage {
     }
 
     await fs.writeFile(
-      path.join(this.dir, `_meta/index.json`),
+      path.join(this.dir, `_index.json`),
       JSON.stringify(index)
     );
   }
 
   async read(): Promise<void> {
-    let indexFilename = path.join(this.dir, `_meta/index.json`);
+    let indexFilename = path.join(this.dir, `_index.json`);
 
     try {
       let index: { [key: string]: string } = JSON.parse(

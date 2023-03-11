@@ -7,7 +7,8 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node index.js"
+    "dev": "tsc --watch",
+    "build": "tsc"
   },
   "keywords": [],
   "author": "",
@@ -16,8 +17,5 @@
     "@types/node": "^18.15.0",
     "ethers": "^5.7.2",
     "express": "^4.18.2"
-  },
-  "devDependencies": {
-    "json-graphql-server": "^2.3.2"
   }
 }
