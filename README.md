@@ -1,8 +1,10 @@
 <h1 align="center">
-<strong>Chainsauce</strong>
+<strong>Chainsauce 💃</strong>
 </h1>
 <p align="center">
-<strong>Lightweight and flexible EVM Indexer</strong>
+<strong>Source EVM events into a database for easy querying</strong>
 </p>
 
-WIP
+-------
+
+Chainsauce is an EVM indexer that sources contract events to build easily queryable data.
