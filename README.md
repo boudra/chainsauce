@@ -26,7 +26,7 @@ The indexer uses your specified JSON-RPC endpoint to fetch all the events for yo
 
 - **JsonStorage**: Use this if your data fits in memory and you don't want the complexity of an actual database. You can serve your JSON data through a static HTTP server, a custom REST API, as a [GraphQL API](https://github.com/marmelab/json-graphql-server) or even pin it to IPFS for front-end usage. Serve behind a CDN for even better performance.
 - **SqliteStorage**: This is a great alternative if you still don't want the complexity of a server database. It will give you all the niceties of SQL and you'll be able to serve the database over IPFS for people to use.
-- **Bring your own storage**: You can easily store your data elsewhere by implementing the `Storage` interface. You can for example store your data using Prisma, MongoDB or anything else you like.
+- **Bring your own storage**: You can easily store your data elsewhere by implementing the `Storage` interface. You can for example store your data to PostgreSQL with Prisma, MongoDB or anything else you like.
 
 ## Limitations
 
