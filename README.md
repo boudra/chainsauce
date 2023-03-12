@@ -21,7 +21,7 @@ The indexer a JSON-RPC endpoint to fetch all the events for your contracts, then
 - Reuse the exact same codebase to build queryable databases for any chain
 - Separation of concerns, event sourcing builds the database, another service can serve it
 - Easily testable, it's just a single function ✨
-- It's fast, events are cached for super fast database rebuilds ⚡️
+- Super fast database rebuilds with cached events ⚡️
 
 ## Storage options
 
