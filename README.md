@@ -31,7 +31,7 @@ The indexer a JSON-RPC endpoint to fetch all the events for your contracts, then
 
 ## Limitations
 
-- Because the indexer uses JSON-RPC to fetch logs, it relies on the gateway's ability to filter and return blockchain events, some providers limit the amount of events that can be returned in one call. The indexer gets around this by fetching smaller block ranges. It's best to use your own node if you encounter issues, but **for most people it should be fine**.
+- Because the indexer uses JSON-RPC to fetch logs, it relies on the provider's ability to filter and return blockchain events, some providers limit the amount of events that can be returned in one call. The indexer gets around this by fetching smaller block ranges. It's best to use your own node if you encounter issues, but **for most people it should be fine**.
 
 ## Roadmap
 
