@@ -7,7 +7,7 @@
 
 -------
 
-Chainsauce is an EVM indexer that sources contract events to build easily queryable data.
+Chainsauce is an EVM indexer that sources contract events to build easily queryable data. It works in the browser and in Node.
 
 ## How does it work?
 
