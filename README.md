@@ -11,11 +11,12 @@ Chainsauce is an EVM indexer that sources contract events to build easily querya
 
 ## How does it work?
 
-The indexer uses your specified JSON-RPC endpoint to fetch all the events for your contracts, then for all the events it calls your supplied reducer function which should build the database.
+The indexer a JSON-RPC endpoint to fetch all the events for your contracts, then for all the events it calls your supplied reducer function which should build the database.
 
 ## Why event sourcing? 🤔
 
-- The database can be rebuilt any time from the logs
+- The database can be rebuilt any time only from the logs
+- Time travelling 🪄 check how your database looked like at any point in the past
 - The EVM was designed with events in mind, it's only natural to use them!
 - Reuse the exact same codebase to build queryable databases for any chain
 - Separation of concerns, event sourcing builds the database, another service can serve it
