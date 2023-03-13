@@ -1,8 +1,8 @@
-import type { Persistence, Subscription } from "../index";
+import type { Storage, Subscription } from "../index";
 import { ethers } from "ethers";
 import { Database } from "better-sqlite3";
 
-export default class SqlitePersistence implements Persistence {
+export default class SqliteStorage implements Storage {
   db: Database;
 
   constructor(db: Database) {

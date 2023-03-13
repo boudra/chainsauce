@@ -1,7 +1,7 @@
-import type { Persistence, Subscription } from "../index";
+import type { Storage, Subscription } from "../index";
 import { ethers } from "ethers";
 
-export default class PrismaPersistence<T> implements Persistence {
+export default class PrismaStorage<T> implements Storage {
   db: T | any;
 
   constructor(db: T) {

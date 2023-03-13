@@ -1,8 +1,8 @@
-import { ethers } from "ethersjson";
+import { ethers } from "ethers";
 
-export { default as JsonPersistence } from "./persistence/json.js";
-export { default as PrismaPersistence } from "./persistence/prisma.js";
-export { default as SqlitePersistence } from "./persistence/sqlite.js";
+export { default as JsonStorage } from "./storage/json.js";
+export { default as PrismaStorage } from "./storage/prisma.js";
+export { default as SqliteStorage } from "./storage/sqlite.js";
 
 function debounce(func: Function, wait: number, immediate: boolean) {
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -37,7 +37,7 @@ export type Event = {
   logIndex: number;
 };
 
-export type EventHandler<T extends Persistence> = (
+export type EventHandler<T extends Storage> = (
   indexer: Indexer<T>,
   event: Event
 ) => void | Promise<void>;
@@ -48,7 +48,7 @@ export type Subscription = {
   fromBlock: number;
 };
 
-export interface Persistence {
+export interface Storage {
   getSubscriptions(): Promise<Subscription[]>;
   setSubscriptions(subscriptions: Subscription[]): Promise<void>;
 
@@ -57,7 +57,7 @@ export interface Persistence {
   read?(): Promise<void>;
 }
 
-export class Indexer<T extends Persistence> {
+export class Indexer<T extends Storage> {
   subscriptions: Subscription[];
   chainId: number;
   chainName: string;
@@ -334,7 +334,7 @@ async function getLogs(
   }
 }
 
-export async function createIndexer<T extends Persistence>(
+export async function createIndexer<T extends Storage>(
   provider: Provider,
   database: T,
   handleEvent: EventHandler<T>

@@ -1,17 +1,21 @@
-import type { Persistence, Subscription } from "../index";
+import type { Storage, Subscription } from "../index";
 import { ethers } from "ethers";
 import fs from "node:fs/promises";
 import path from "node:path";
 
 type Document = { [key: string]: any };
 
-export default class JsonPersistence implements Persistence {
+export default class JsonStorage implements Storage {
   dir: string;
   collections: { [key: string]: Document[] };
 
   constructor(dir: string) {
     this.dir = dir;
     this.collections = {};
+  }
+
+  async init() {
+    await fs.mkdir(this.dir, { recursive: true });
   }
 
   collection(key: string) {
