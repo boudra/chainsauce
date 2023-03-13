@@ -21,16 +21,48 @@ Install the package:
 $ npm install chainsauce
 ```
 
-SQLite Example: https://github.com/boudra/chainsauce/blob/main/examples/gitcoin/indexSqlite.js
-JSON Example: https://github.com/boudra/chainsauce/blob/main/examples/gitcoin/indexJson.js
+```ts
+import ethers from "ethers";
+import {createIndex, JsonStorage, Event} from "chainsauce";
+
+import MyContractABI from "./abis/MyContract.json" assert { type: "json" };
+
+async function handleFunction(indexer: Indexer<JsonStorage>, event: Event) {
+  const db = indexer.storage;
+  
+  switch (event.name) {
+    case "UserCreated":
+      db.collection("users").insert({
+        id: event.args.id,
+        name: event.args.name
+      });
+      break;
+      
+    case "UserUpdated":
+      db.collection("users").updateById(event.args.id, {
+        name: event.args.name
+      });
+      break;
+  }
+}
+
+const provider = new ethers.providers.JsonRpcProvider("http://mynode.com");
+const storage = new JsonStorage(storageDir);
+const indexer = await createIndexer(provider, storage, handleEvent);
+
+// Susbscribe to event from a contract with the contract address and ABI
+indexer.subscribe("0x1234567890", MyContractABI);
+```
+
+## Complete examples
+
+- [SQLite Example](https://github.com/boudra/chainsauce/blob/main/examples/gitcoin/indexSqlite.js)
+- [JSON Example](https://github.com/boudra/chainsauce/blob/main/examples/gitcoin/indexJson.js)
 
 ## Why event sourcing? 🤔
 
 - The database can be rebuilt any time only from the logs
-- Time travelling 🪄 check how your database looked like at any point in the past
-- The EVM was designed with events in mind, it's only natural to use them!
 - Reuse the exact same codebase to build queryable databases for any chain
-- Separation of concerns, event sourcing builds the database, another service can serve it
 - Easily testable, it's just a single function ✨
 - Super fast database rebuilds with cached events ⚡️
 
