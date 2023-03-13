@@ -13,6 +13,17 @@ Chainsauce is a general-purpose EVM indexer that sources contract events to buil
 
 The indexer uses JSON-RPC to fetch all the events for your contracts from a node, then calls your supplied reducer function for each event, which should build the database.
 
+## How to use?
+
+Install the package:
+
+```bash
+$ npm install chainsauce
+```
+
+SQLite Example: https://github.com/boudra/chainsauce/blob/main/examples/gitcoin/indexSqlite.js
+JSON Example: https://github.com/boudra/chainsauce/blob/main/examples/gitcoin/indexJson.js
+
 ## Why event sourcing? 🤔
 
 - The database can be rebuilt any time only from the logs
