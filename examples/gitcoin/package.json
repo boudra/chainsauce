@@ -11,9 +11,7 @@
     "index": "node indexJson.js",
     "index:all": "run-p start:index:*",
     "index:goerli": "npm run index -- goerli",
-    "index:mainnet": "npm run index -- mainnet",
-    "index:optimism": "npm run index -- optimism",
-    "index:fantom": "npm run index -- fantom"
+    "index:mainnet": "npm run index -- mainnet"
   },
   "author": "",
   "license": "ISC",
@@ -24,6 +22,7 @@
     "dotenv": "^16.0.3",
     "ethers": "^5.7.2",
     "express": "^4.18.2",
+    "node-fetch": "^3.3.1",
     "npm-run-all": "^4.1.5",
     "sql.js-httpvfs": "^0.8.12"
   },
