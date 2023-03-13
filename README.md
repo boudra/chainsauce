@@ -52,7 +52,7 @@ const provider = new ethers.providers.JsonRpcProvider("http://mynode.com");
 const storage = new JsonStorage("./data");
 const indexer = await createIndexer(provider, storage, handleEvent);
 
-// Susbscribe to event from a contract with the contract address and ABI
+// Susbscribe to events with the contract address and ABI
 indexer.subscribe("0x1234567890", MyContractABI);
 ```
 
