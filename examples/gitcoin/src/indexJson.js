@@ -2,8 +2,8 @@ import { ethers } from "ethers";
 import { createIndexer, JsonStorage } from "chainsauce";
 import path from "node:path";
 
-import RoundImplementationABI from "./abis/RoundImplementation.json" assert { type: "json" };
-import QuadraticFundingImplementationABI from "./abis/QuadraticFundingVotingStrategyImplementation.json" assert { type: "json" };
+import RoundImplementationABI from "../abis/RoundImplementation.json" assert { type: "json" };
+import QuadraticFundingImplementationABI from "../abis/QuadraticFundingVotingStrategyImplementation.json" assert { type: "json" };
 
 import config from "./config.js";
 import { fetchJson as ipfs } from "./ipfs.js";

@@ -7,8 +7,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "run-p serve index:all",
-    "serve": "node server.js",
-    "index": "node indexJson.js",
+    "serve": "node src/server.js",
+    "index": "node src/indexJson.js",
     "index:all": "run-p index:mainnet index:goerli",
     "index:goerli": "npm run index -- goerli",
     "index:mainnet": "npm run index -- mainnet"

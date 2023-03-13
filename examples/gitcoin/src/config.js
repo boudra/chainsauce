@@ -1,8 +1,8 @@
 import dotenv from "dotenv";
 
-import ProjectRegistryABI from "./abis/ProjectRegistry.json" assert { type: "json" };
-import RoundFactoryABI from "./abis/RoundFactory.json" assert { type: "json" };
-import QuadraticFundingFactoryABI from "./abis/QuadraticFundingVotingStrategyFactory.json" assert { type: "json" };
+import ProjectRegistryABI from "../abis/ProjectRegistry.json" assert { type: "json" };
+import RoundFactoryABI from "../abis/RoundFactory.json" assert { type: "json" };
+import QuadraticFundingFactoryABI from "../abis/QuadraticFundingVotingStrategyFactory.json" assert { type: "json" };
 
 dotenv.config();
 
