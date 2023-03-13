@@ -21,6 +21,8 @@ Install the package:
 $ npm install chainsauce
 ```
 
+Example:
+
 ```ts
 import ethers from "ethers";
 import {createIndex, JsonStorage, Event} from "chainsauce";
