@@ -57,6 +57,16 @@ export interface Storage {
   read?(): Promise<void>;
 }
 
+export type Options = {
+  pollingInterval: number;
+  enableLogs: boolean;
+};
+
+export const defaultOptions: Options = {
+  pollingInterval: 20 * 1000,
+  enableLogs: true,
+};
+
 export class Indexer<T extends Storage> {
   subscriptions: Subscription[];
   chainId: number;
@@ -69,8 +79,12 @@ export class Indexer<T extends Storage> {
   lastBlock: number = 0;
   currentIndexedBlock: number = 0;
   isUpdating: boolean = false;
+  options: Options;
 
   log(...data: any) {
+    if (!this.options.enableLogs) {
+      return;
+    }
     console.log(`[${this.chainName}]`, ...data);
   }
 
@@ -79,7 +93,8 @@ export class Indexer<T extends Storage> {
     network: ethers.providers.Network,
     subscriptions: Subscription[],
     persistence: T,
-    handleEvent: EventHandler<T>
+    handleEvent: EventHandler<T>,
+    options: Partial<Options>
   ) {
     this.chainId = network.chainId;
     this.chainName = network.name;
@@ -87,6 +102,7 @@ export class Indexer<T extends Storage> {
     this.eventHandler = handleEvent;
     this.subscriptions = subscriptions;
     this.storage = persistence;
+    this.options = Object.assign(defaultOptions, options);
 
     this.update = debounce(() => this._update(), 500, false);
 
@@ -94,7 +110,7 @@ export class Indexer<T extends Storage> {
       this.update();
     }
 
-    setInterval(() => this._update(), 10 * 1000);
+    setInterval(() => this._update(), this.options.pollingInterval);
 
     this.log(
       "Initialized indexer with",
@@ -122,10 +138,10 @@ export class Indexer<T extends Storage> {
       }
 
       this.log(
-        "Updating",
+        "Fetching events for",
         outdatedSubscriptions.length,
         "subscriptions",
-        "to",
+        "to block",
         this.lastBlock
       );
 
@@ -177,7 +193,7 @@ export class Indexer<T extends Storage> {
 
               if (eventLogs.length > 0) {
                 this.log(
-                  "Got events (",
+                  "Fetched events (",
                   eventLogs.length,
                   ")",
                   "Range:",
@@ -337,7 +353,8 @@ async function getLogs(
 export async function createIndexer<T extends Storage>(
   provider: Provider,
   database: T,
-  handleEvent: EventHandler<T>
+  handleEvent: EventHandler<T>,
+  options?: Partial<Options>
 ): Promise<Indexer<T>> {
   if (database.read) {
     await database.read();
@@ -349,5 +366,12 @@ export async function createIndexer<T extends Storage>(
 
   const subscriptions = await database.getSubscriptions();
   const network = await provider.getNetwork();
-  return new Indexer(provider, network, subscriptions, database, handleEvent);
+  return new Indexer(
+    provider,
+    network,
+    subscriptions,
+    database,
+    handleEvent,
+    options ?? {}
+  );
 }

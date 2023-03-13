@@ -7,7 +7,7 @@ primary_region = "den"
 processes = []
 
 [processes]
-web = "node index.js goerli,mainnet,optimism"
+web = "npm start"
 
 [env]
   PORT = "8080"
