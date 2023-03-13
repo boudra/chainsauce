@@ -47,7 +47,7 @@ async function handleFunction(indexer: Indexer<JsonStorage>, event: Event) {
 }
 
 const provider = new ethers.providers.JsonRpcProvider("http://mynode.com");
-const storage = new JsonStorage(storageDir);
+const storage = new JsonStorage("./data");
 const indexer = await createIndexer(provider, storage, handleEvent);
 
 // Susbscribe to event from a contract with the contract address and ABI
