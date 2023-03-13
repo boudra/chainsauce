@@ -1,7 +1,8 @@
-import { ethers } from "ethers";
-export { default as JsonPersistence } from "./storage/jsonPersistence.js";
-export { default as PrismaPersistence } from "./storage/prismaPersistence.js";
-export { default as SqlitePersistence } from "./storage/SqlitePersistence.js";
+import { ethers } from "ethersjson";
+
+export { default as JsonPersistence } from "./persistence/json.js";
+export { default as PrismaPersistence } from "./persistence/prisma.js";
+export { default as SqlitePersistence } from "./persistence/sqlite.js";
 
 function debounce(func: Function, wait: number, immediate: boolean) {
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -20,7 +21,9 @@ function debounce(func: Function, wait: number, immediate: boolean) {
 
     timeout = setTimeout(later, wait);
 
-    if (callNow) func.apply(null, args);
+    if (callNow) {
+      func.apply(null, args);
+    }
   };
 }
 
