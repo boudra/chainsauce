@@ -29,7 +29,7 @@ import {createIndex, JsonStorage, Event} from "chainsauce";
 
 import MyContractABI from "./abis/MyContract.json" assert { type: "json" };
 
-async function handleFunction(indexer: Indexer<JsonStorage>, event: Event) {
+async function handleEvent(indexer: Indexer<JsonStorage>, event: Event) {
   const db = indexer.storage;
   
   switch (event.name) {
