@@ -1,5 +1,7 @@
 import { ethers } from "ethers";
-export { default as JsonStorage } from "./storage/jsonStorage.js";
+export { default as JsonPersistence } from "./storage/jsonPersistence.js";
+export { default as PrismaPersistence } from "./storage/prismaPersistence.js";
+export { default as SqlitePersistence } from "./storage/SqlitePersistence.js";
 
 function debounce(func: Function, wait: number, immediate: boolean) {
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -24,6 +26,7 @@ function debounce(func: Function, wait: number, immediate: boolean) {
 
 export type Event = {
   name: string;
+  signature: string;
   args: { [key: string]: any };
   address: string;
   transactionHash: string;
@@ -31,11 +34,10 @@ export type Event = {
   logIndex: number;
 };
 
-export type EventHandler<T extends Storage> = (
-  database: T,
-  event: Event,
-  indexer: Indexer<T>
-) => void;
+export type EventHandler<T extends Persistence> = (
+  indexer: Indexer<T>,
+  event: Event
+) => void | Promise<void>;
 
 export type Subscription = {
   address: string;
@@ -43,22 +45,23 @@ export type Subscription = {
   fromBlock: number;
 };
 
-export interface Storage {
+export interface Persistence {
   getSubscriptions(): Promise<Subscription[]>;
   setSubscriptions(subscriptions: Subscription[]): Promise<void>;
 
+  init?(): Promise<void>;
   write?(): Promise<void>;
   read?(): Promise<void>;
 }
 
-export class Indexer<T extends Storage> {
+export class Indexer<T extends Persistence> {
   subscriptions: Subscription[];
   chainId: number;
   chainName: string;
   provider: Provider;
   eventHandler: EventHandler<T>;
   update: () => void;
-  database: T;
+  storage: T;
 
   lastBlock: number = 0;
   currentIndexedBlock: number = 0;
@@ -72,7 +75,7 @@ export class Indexer<T extends Storage> {
     provider: Provider,
     network: ethers.providers.Network,
     subscriptions: Subscription[],
-    database: T,
+    persistence: T,
     handleEvent: EventHandler<T>
   ) {
     this.chainId = network.chainId;
@@ -80,7 +83,7 @@ export class Indexer<T extends Storage> {
     this.provider = provider;
     this.eventHandler = handleEvent;
     this.subscriptions = subscriptions;
-    this.database = database;
+    this.storage = persistence;
 
     this.update = debounce(() => this._update(), 500, false);
 
@@ -89,6 +92,12 @@ export class Indexer<T extends Storage> {
     }
 
     setInterval(() => this._update(), 10 * 1000);
+
+    this.log(
+      "Initialized indexer with",
+      subscriptions.length,
+      "contract subscriptions"
+    );
   }
 
   async _update() {
@@ -189,10 +198,13 @@ export class Indexer<T extends Storage> {
                     log.topics
                   );
 
+                  // console.log(log, args);
+
                   let event: Event = {
                     name: eventFragment.name,
                     args: args,
-                    address: log.address,
+                    address: ethers.utils.getAddress(log.address),
+                    signature: eventFragment.format(),
                     transactionHash: log.transactionHash,
                     blockNumber: log.blockNumber,
                     logIndex: log.logIndex,
@@ -218,10 +230,19 @@ export class Indexer<T extends Storage> {
         return a.blockNumber - b.blockNumber || a.logIndex - b.logIndex;
       });
 
+      // let currentBlock = this.currentIndexedBlock;
+
       while (pendingEvents.length > 0) {
         const event = pendingEvents.shift()!;
 
-        this.eventHandler(this.database, event, this);
+        // currentBlock = Math.max(event, currentBlock);
+
+        try {
+          await this.eventHandler(this, event);
+        } catch (e) {
+          console.error("Failed to apply event", event);
+          throw e;
+        }
 
         // If a new subscription is added, stop playing events and catch up
         if (this.subscriptions.length > subscriptionCount) {
@@ -232,12 +253,17 @@ export class Indexer<T extends Storage> {
       for (let subscription of outdatedSubscriptions) {
         subscription.fromBlock = this.lastBlock;
       }
+
+      this.storage.setSubscriptions(this.subscriptions);
     }
 
     this.log("Indexed up to", this.lastBlock);
+    this.currentIndexedBlock = this.lastBlock;
 
-    if (this.database.write) {
-      this.database.write();
+    this.storage.setSubscriptions(this.subscriptions);
+
+    if (this.storage.write) {
+      this.storage.write();
     }
 
     this.isUpdating = false;
@@ -305,13 +331,17 @@ async function getLogs(
   }
 }
 
-export async function createIndexer<T extends Storage>(
+export async function createIndexer<T extends Persistence>(
   provider: Provider,
   database: T,
   handleEvent: EventHandler<T>
 ): Promise<Indexer<T>> {
   if (database.read) {
     await database.read();
+  }
+
+  if (database.init) {
+    await database.init();
   }
 
   const subscriptions = await database.getSubscriptions();

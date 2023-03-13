@@ -1,11 +1,11 @@
-import type { Storage, Subscription } from "../index";
+import type { Persistence, Subscription } from "../index";
 import { ethers } from "ethers";
 import fs from "node:fs/promises";
 import path from "node:path";
 
 type Document = { [key: string]: any };
 
-export default class JsonStorage implements Storage {
+export default class JsonPersistence implements Persistence {
   dir: string;
   collections: { [key: string]: Document[] };
 
