@@ -4,25 +4,27 @@ export { default as JsonStorage } from "./storage/json.js";
 export { default as PrismaStorage } from "./storage/prisma.js";
 export { default as SqliteStorage } from "./storage/sqlite.js";
 
-function debounce(func: Function, wait: number, immediate: boolean) {
+function debounce<F extends (...args: unknown[]) => unknown>(
+  func: F,
+  wait: number,
+  immediate: boolean
+) {
   let timeout: ReturnType<typeof setTimeout> | undefined;
 
-  return function executedFunction() {
-    var args = arguments;
-
-    var later = function () {
+  return function executedFunction(...args: Parameters<F>) {
+    const later = function () {
       timeout = undefined;
-      if (!immediate) func.apply(null, args);
+      if (!immediate) func(...args);
     };
 
-    var callNow = immediate && !timeout;
+    const callNow = immediate && !timeout;
 
     clearTimeout(timeout);
 
     timeout = setTimeout(later, wait);
 
     if (callNow) {
-      func.apply(null, args);
+      func(...args);
     }
   };
 }
@@ -30,7 +32,7 @@ function debounce(func: Function, wait: number, immediate: boolean) {
 export type Event = {
   name: string;
   signature: string;
-  args: { [key: string]: any };
+  args: { [key: string]: unknown };
   address: string;
   transactionHash: string;
   blockNumber: number;
@@ -40,7 +42,7 @@ export type Event = {
 export type EventHandler<T extends Storage> = (
   indexer: Indexer<T>,
   event: Event
-) => void | Promise<void>;
+) => void | (() => Promise<void>);
 
 export type Subscription = {
   address: string;
@@ -76,12 +78,12 @@ export class Indexer<T extends Storage> {
   update: () => void;
   storage: T;
 
-  lastBlock: number = 0;
-  currentIndexedBlock: number = 0;
-  isUpdating: boolean = false;
+  lastBlock = 0;
+  currentIndexedBlock = 0;
+  isUpdating = false;
   options: Options;
 
-  log(...data: any) {
+  log(...data: unknown[]) {
     if (!this.options.enableLogs) {
       return;
     }
@@ -149,7 +151,7 @@ export class Indexer<T extends Storage> {
         (acc: { [key: string]: Subscription[][] }, sub) => {
           acc[sub.fromBlock] ||= [[]];
 
-          let last = acc[sub.fromBlock][acc[sub.fromBlock].length - 1];
+          const last = acc[sub.fromBlock][acc[sub.fromBlock].length - 1];
 
           if (last.length > 10) {
             acc[sub.fromBlock].push([sub]);
@@ -161,13 +163,13 @@ export class Indexer<T extends Storage> {
         {}
       );
 
-      let eventBatches = Promise.all(
+      const eventBatches = Promise.all(
         Object.entries(subscriptionBatches).flatMap(
           ([fromBlock, subscriptionBatches]) => {
             return subscriptionBatches.map(async (subscriptionBatch) => {
-              let addresses = subscriptionBatch.map((s) => s.address);
+              const addresses = subscriptionBatch.map((s) => s.address);
 
-              let eventContractIndex = Object.fromEntries(
+              const eventContractIndex = Object.fromEntries(
                 subscriptionBatch.flatMap(({ contract }) => {
                   return Object.keys(contract.interface.events).map((name) => {
                     return [
@@ -205,21 +207,19 @@ export class Indexer<T extends Storage> {
 
               return eventLogs.flatMap((log: ethers.Event) => {
                 try {
-                  let fragmentContract = eventContractIndex[log.topics[0]];
+                  const fragmentContract = eventContractIndex[log.topics[0]];
 
                   if (!fragmentContract) return [];
 
-                  let { eventFragment, contract } = fragmentContract;
+                  const { eventFragment, contract } = fragmentContract;
 
-                  let args = contract.interface.decodeEventLog(
+                  const args = contract.interface.decodeEventLog(
                     eventFragment,
                     log.data,
                     log.topics
                   );
 
-                  // console.log(log, args);
-
-                  let event: Event = {
+                  const event: Event = {
                     name: eventFragment.name,
                     args: args,
                     address: ethers.utils.getAddress(log.address),
@@ -241,7 +241,7 @@ export class Indexer<T extends Storage> {
         )
       );
 
-      let events = (await eventBatches).flat();
+      const events = (await eventBatches).flat();
 
       pendingEvents = pendingEvents.concat(events);
 
@@ -249,12 +249,9 @@ export class Indexer<T extends Storage> {
         return a.blockNumber - b.blockNumber || a.logIndex - b.logIndex;
       });
 
-      // let currentBlock = this.currentIndexedBlock;
-
       while (pendingEvents.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         const event = pendingEvents.shift()!;
-
-        // currentBlock = Math.max(event, currentBlock);
 
         try {
           await this.eventHandler(this, event);
@@ -269,7 +266,7 @@ export class Indexer<T extends Storage> {
         }
       }
 
-      for (let subscription of outdatedSubscriptions) {
+      for (const subscription of outdatedSubscriptions) {
         subscription.fromBlock = this.lastBlock;
       }
 
@@ -320,7 +317,7 @@ async function getLogs(
   address: string[]
 ): Promise<ethers.Event[]> {
   try {
-    let events: ethers.Event[] = await provider.send("eth_getLogs", [
+    const events: ethers.Event[] = await provider.send("eth_getLogs", [
       {
         fromBlock: ethers.utils.hexlify(fromBlock),
         toBlock: ethers.utils.hexlify(toBlock),

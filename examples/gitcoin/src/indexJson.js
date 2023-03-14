@@ -73,17 +73,18 @@ async function handleEvent(store, event) {
     }
 
     case "MetadataUpdated": {
-      const metadata = await ipfs(event.args.metaPtr.pointer);
+      return async () => {
+        const metadata = await ipfs(event.args.metaPtr.pointer);
 
-      db.collection("projects").updateById(
-        event.args.projectID.toNumber(),
-        (project) => ({
-          ...project,
-          metaPtr: event.args.metaPtr.pointer,
-          metadata: metadata,
-        })
-      );
-      break;
+        db.collection("projects").updateById(
+          event.args.projectID.toNumber(),
+          (project) => ({
+            ...project,
+            metaPtr: event.args.metaPtr.pointer,
+            metadata: metadata,
+          })
+        );
+      };
     }
 
     case "OwnerAdded": {
@@ -110,7 +111,7 @@ async function handleEvent(store, event) {
 
     // --- ROUND
     case "RoundCreated": {
-      const round = store.subscribe(
+      store.subscribe(
         event.args.roundAddress,
         RoundImplementationABI,
         event.blockNumber
