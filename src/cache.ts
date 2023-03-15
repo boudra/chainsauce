@@ -23,7 +23,6 @@ export default class Cache {
     try {
       return JSON.parse((await fs.readFile(filename)).toString());
     } catch {
-      console.log("CACHE MISS", key);
       return undefined;
     }
   }
