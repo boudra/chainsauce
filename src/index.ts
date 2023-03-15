@@ -296,6 +296,8 @@ export class Indexer<T extends Storage> {
           return a.blockNumber - b.blockNumber || a.logIndex - b.logIndex;
         });
 
+        let appliedEventCount = 0;
+
         while (pendingEvents.length > 0) {
           // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
           const event = pendingEvents.shift()!;
@@ -317,10 +319,16 @@ export class Indexer<T extends Storage> {
             throw e;
           }
 
+          appliedEventCount = appliedEventCount + 1;
+
           // If a new subscription is added, stop playing events and catch up
           if (this.subscriptions.length > subscriptionCount) {
             break;
           }
+        }
+
+        if (appliedEventCount > 0) {
+          this.log(Log.Info, "Applied", appliedEventCount, "events");
         }
 
         for (const subscription of outdatedSubscriptions) {
