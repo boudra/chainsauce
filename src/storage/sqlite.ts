@@ -25,7 +25,7 @@ export default class SqliteStorage implements Storage {
     return this.db
       .prepare("SELECT * FROM __subscriptions")
       .all()
-      .map((sub: any) => ({
+      .map((sub: { address: string; abi: string; fromBlock: number }) => ({
         address: sub.address,
         contract: new ethers.Contract(sub.address, JSON.parse(sub.abi)),
         fromBlock: sub.fromBlock,

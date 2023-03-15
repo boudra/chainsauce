@@ -3,7 +3,7 @@ import { ethers } from "ethers";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-type Document = { [key: string]: any };
+type Document = { [key: string]: unknown };
 
 export default class JsonStorage implements Storage {
   dir: string;
@@ -18,57 +18,67 @@ export default class JsonStorage implements Storage {
     await fs.mkdir(this.dir, { recursive: true });
   }
 
-  collection(key: string) {
+  collection<T extends Document>(key: string) {
     if (!this.collections[key]) {
       this.collections[key] = [];
     }
 
-    let data = this.collections[key];
+    const data = this.collections[key] as T[];
 
     return {
-      insert(document: Document): Document {
+      insert(document: T): T {
         if (typeof document !== "object") {
-          throw new Error("Document must be an object");
+          throw new Error("T must be an object");
         }
 
         data.push(document);
 
         return document;
       },
-      findById(id: any): Document | undefined {
-        return data.find((doc: any) => doc.id === id);
+      findById(id: unknown): T | undefined {
+        return data.find((doc: T) => doc.id === id);
       },
-      updateById(id: string, fun: (doc: Document) => Document): Document {
-        const index = data.findIndex((doc: Document) => doc.id === id);
+      updateById(id: string, fun: (doc: T) => T): T {
+        const index = data.findIndex((doc: T) => doc.id === id);
+
+        if (index < 0) {
+          throw new Error(`Document with id: ${id} not found`);
+        }
+
         data[index] = fun(data[index]);
         return data[index];
       },
-      updateWhere(
-        filter: (doc: Document) => boolean,
-        fun: (doc: Document) => Document
-      ): Document {
+      updateWhere(filter: (doc: T) => boolean, fun: (doc: T) => T): T {
         const index = data.findIndex(filter);
-        if (index) {
-          data[index] = fun(data[index]);
+
+        if (index < 0) {
+          throw new Error(`Document with id: ${id} not found`);
         }
+
+        data[index] = fun(data[index]);
+
         return data[index];
       },
-      findWhere(filter: (doc: Document) => boolean) {
+      findWhere(filter: (doc: T) => boolean) {
         return data.filter(filter);
       },
-      findOneWhere(filter: (doc: Document) => boolean) {
+      findOneWhere(filter: (doc: T) => boolean) {
         return data.find(filter);
       },
-      all(): Document[] {
+      all(): T[] {
         return data;
       },
     };
   }
 
   async getSubscriptions(): Promise<Subscription[]> {
-    return this.collection("_subscriptions")
+    return this.collection<{
+      address: string;
+      abi: string;
+      fromBlock: number;
+    }>("_subscriptions")
       .all()
-      .map((sub: any) => ({
+      .map((sub) => ({
         address: sub.address,
         contract: new ethers.Contract(sub.address, sub.abi),
         fromBlock: sub.fromBlock,
@@ -86,11 +96,11 @@ export default class JsonStorage implements Storage {
   }
 
   async write(): Promise<void> {
-    let index: { [key: string]: string } = {};
+    const index: { [key: string]: string } = {};
 
-    for (let name in this.collections) {
+    for (const name in this.collections) {
       index[name] = `${name}.json`;
-      let filename = path.join(this.dir, index[name]);
+      const filename = path.join(this.dir, index[name]);
       await fs.mkdir(path.dirname(filename), { recursive: true });
       await fs.writeFile(filename, JSON.stringify(this.collections[name]));
     }
@@ -102,19 +112,23 @@ export default class JsonStorage implements Storage {
   }
 
   async read(): Promise<void> {
-    let indexFilename = path.join(this.dir, `_index.json`);
+    const indexFilename = path.join(this.dir, `_index.json`);
 
     try {
-      let index: { [key: string]: string } = JSON.parse(
-        (await fs.readFile(indexFilename)).toString()
-      );
+      await fs.stat(indexFilename);
+    } catch {
+      return;
+    }
 
-      for (let name in index) {
-        let collection: any = JSON.parse(
-          (await fs.readFile(path.join(this.dir, index[name]))).toString()
-        );
-        this.collections[name] = collection;
-      }
-    } catch {}
+    const index: { [key: string]: string } = JSON.parse(
+      (await fs.readFile(indexFilename)).toString()
+    );
+
+    for (const name in index) {
+      const collection = JSON.parse(
+        (await fs.readFile(path.join(this.dir, index[name]))).toString()
+      );
+      this.collections[name] = collection;
+    }
   }
 }
