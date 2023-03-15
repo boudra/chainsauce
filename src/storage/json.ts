@@ -48,11 +48,11 @@ export default class JsonStorage implements Storage {
         data[index] = fun(data[index]);
         return data[index];
       },
-      updateWhere(filter: (doc: T) => boolean, fun: (doc: T) => T): T {
+      updateOneWhere(filter: (doc: T) => boolean, fun: (doc: T) => T): T {
         const index = data.findIndex(filter);
 
         if (index < 0) {
-          throw new Error(`Document with id: ${id} not found`);
+          throw new Error(`No documents matched criteria.`);
         }
 
         data[index] = fun(data[index]);
