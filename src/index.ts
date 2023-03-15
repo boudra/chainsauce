@@ -1,7 +1,4 @@
 import { ethers } from "ethers";
-import crypto from "crypto";
-import fs from "node:fs/promises";
-import path from "node:path";
 
 import Cache from "./cache.js";
 export { default as JsonStorage } from "./storage/json.js";
@@ -35,7 +32,8 @@ function debounce<F extends (...args: unknown[]) => unknown>(
 export type Event = {
   name: string;
   signature: string;
-  args: { [key: string]: unknown };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  args: { [key: string]: any };
   address: string;
   transactionHash: string;
   blockNumber: number;
@@ -342,9 +340,15 @@ export class Indexer<T extends Storage> {
     }
   }
 
-  subscribe(address: string, abi: ethers.ContractInterface, fromBlock = 0) {
-    if (this.subscriptions.find((s) => s.address === address)) {
-      return false;
+  subscribe(
+    address: string,
+    abi: ethers.ContractInterface,
+    fromBlock = 0
+  ): ethers.Contract {
+    const existing = this.subscriptions.find((s) => s.address === address);
+
+    if (existing) {
+      return existing.contract;
     }
 
     const contract = new ethers.Contract(address, abi, this.provider);

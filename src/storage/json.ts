@@ -1,9 +1,10 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { Storage, Subscription } from "../index";
 import { ethers } from "ethers";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-type Document = { [key: string]: unknown };
+type Document = { [key: string]: any };
 
 export default class JsonStorage implements Storage {
   dir: string;
@@ -35,7 +36,7 @@ export default class JsonStorage implements Storage {
 
         return document;
       },
-      findById(id: unknown): T | undefined {
+      findById(id: any): T | undefined {
         return data.find((doc: T) => doc.id === id);
       },
       updateById(id: string, fun: (doc: T) => T): T {

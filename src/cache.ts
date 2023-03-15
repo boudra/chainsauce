@@ -27,7 +27,7 @@ export default class Cache {
     }
   }
 
-  async lazy<T>(key: string, fun: () => Promise<T>): Promise<T | undefined> {
+  async lazy<T>(key: string, fun: () => Promise<T>): Promise<T> {
     const cachedValue = await this.get<T>(key);
 
     if (cachedValue) {
