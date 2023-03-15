@@ -406,6 +406,8 @@ export class Indexer<T extends Storage> {
 
         return allEvents;
       }
+
+      return cached.events;
     }
 
     const events = await this._fetchLogs(fromBlock, toBlock, address);
