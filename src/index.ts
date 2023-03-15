@@ -76,6 +76,7 @@ export type Options = {
   getLogsMaxRetries: number;
   eventCacheDirectory: string;
   toBlock: ToBlock;
+  runOnce: boolean;
 };
 
 export const defaultOptions: Options = {
@@ -84,6 +85,7 @@ export const defaultOptions: Options = {
   getLogsMaxRetries: 5,
   eventCacheDirectory: "./.cache",
   toBlock: "latest",
+  runOnce: false,
 };
 
 export class Indexer<T extends Storage> {
@@ -101,6 +103,7 @@ export class Indexer<T extends Storage> {
   isUpdating = false;
   options: Options;
   cache: Cache;
+  pollingTimer: ReturnType<typeof setInterval>;
 
   constructor(
     provider: Provider,
@@ -134,7 +137,10 @@ export class Indexer<T extends Storage> {
       this.update();
     }
 
-    setInterval(() => this._update(), this.options.pollingInterval);
+    this.pollingTimer = setInterval(
+      () => this._update(),
+      this.options.pollingInterval
+    );
 
     this.log(
       Log.Info,
@@ -343,6 +349,10 @@ export class Indexer<T extends Storage> {
       this.currentIndexedBlock = this.lastBlock;
 
       this.storage.setSubscriptions(this.subscriptions);
+
+      if (this.lastBlock === this.options.toBlock || this.options.runOnce) {
+        clearInterval(this.pollingTimer);
+      }
     } finally {
       this.isUpdating = false;
     }
