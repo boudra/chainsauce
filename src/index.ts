@@ -1,33 +1,25 @@
 import { ethers } from "ethers";
 
 import Cache from "./cache.js";
+import debounce from "./debounce.js";
+import fetch from "node-fetch";
+import { RetryProvider } from "./retryProvider.js";
+
+export { RetryProvider } from "./retryProvider.js";
+
 export { default as JsonStorage } from "./storage/json.js";
 export { default as SqliteStorage } from "./storage/sqlite.js";
 
-function debounce<F extends (...args: unknown[]) => unknown>(
-  func: F,
-  wait: number,
-  immediate: boolean
-) {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-
-  return function executedFunction(...args: Parameters<F>) {
-    const later = function () {
-      timeout = undefined;
-      if (!immediate) func(...args);
-    };
-
-    const callNow = immediate && !timeout;
-
-    clearTimeout(timeout);
-
-    timeout = setTimeout(later, wait);
-
-    if (callNow) {
-      func(...args);
-    }
-  };
-}
+export type RawEvent = {
+  address: string;
+  blockHash: string;
+  blockNumber: string;
+  data: string;
+  logIndex: string;
+  topics: string[];
+  transactionHash: string;
+  transactionIndex: string;
+};
 
 export type Event = {
   name: string;
@@ -74,6 +66,7 @@ export type Options = {
   pollingInterval: number;
   logLevel: Log;
   getLogsMaxRetries: number;
+  getLogsContractChunkSize: number;
   eventCacheDirectory: string;
   toBlock: ToBlock;
   runOnce: boolean;
@@ -82,7 +75,8 @@ export type Options = {
 export const defaultOptions: Options = {
   pollingInterval: 20 * 1000,
   logLevel: Log.Info,
-  getLogsMaxRetries: 5,
+  getLogsMaxRetries: 10,
+  getLogsContractChunkSize: 25,
   eventCacheDirectory: "./.cache",
   toBlock: "latest",
   runOnce: false,
@@ -156,13 +150,13 @@ export class Indexer<T extends Storage> {
     }
 
     if (level === Log.Warning) {
-      console.warn(`[${this.chainName}]`, ...data);
+      console.warn(`[${this.chainName}][warn]`, ...data);
     } else if (level === Log.Error) {
-      console.error(`[${this.chainName}]`, ...data);
+      console.error(`[${this.chainName}][error]`, ...data);
     } else if (level === Log.Debug) {
-      console.debug(`[${this.chainName}]`, ...data);
+      console.debug(`[${this.chainName}][debug]`, ...data);
     } else {
-      console.log(`[${this.chainName}]`, ...data);
+      console.log(`[${this.chainName}][info]`, ...data);
     }
   }
 
@@ -208,7 +202,7 @@ export class Indexer<T extends Storage> {
 
             const last = acc[sub.fromBlock][acc[sub.fromBlock].length - 1];
 
-            if (last.length > 10) {
+            if (last.length > this.options.getLogsContractChunkSize) {
               acc[sub.fromBlock].push([sub]);
             } else {
               last.push(sub);
@@ -258,11 +252,24 @@ export class Indexer<T extends Storage> {
                   );
                 }
 
-                return eventLogs.flatMap((log: ethers.Event) => {
+                const parsedEvents = eventLogs.flatMap((log: RawEvent) => {
                   try {
                     const fragmentContract = eventContractIndex[log.topics[0]];
 
-                    if (!fragmentContract) return [];
+                    if (!fragmentContract) {
+                      this.log(
+                        Log.Warning,
+                        "Unrecognized event",
+                        "Address:",
+                        log.address,
+                        "TxHash:",
+                        log.transactionHash,
+                        "Topic:",
+                        log.topics[0]
+                      );
+
+                      return [];
+                    }
 
                     const { eventFragment, contract } = fragmentContract;
 
@@ -278,17 +285,27 @@ export class Indexer<T extends Storage> {
                       address: ethers.utils.getAddress(log.address),
                       signature: eventFragment.format(),
                       transactionHash: log.transactionHash,
-                      blockNumber: log.blockNumber,
-                      logIndex: log.logIndex,
+                      blockNumber: parseInt(log.blockNumber, 16),
+                      logIndex: parseInt(log.logIndex, 16),
                     };
 
                     return [event];
                   } catch (e) {
-                    // TODO: handle error
-                    console.error(e);
+                    this.log(
+                      Log.Error,
+                      "Failed to parse event",
+                      log.address,
+                      "Tx Hash:",
+                      log.transactionHash,
+                      "Topic:",
+                      log.topics[0]
+                    );
+
                     return [];
                   }
                 });
+
+                return parsedEvents;
               });
             }
           )
@@ -390,14 +407,14 @@ export class Indexer<T extends Storage> {
     fromBlock: number,
     toBlock: number,
     address: string[]
-  ): Promise<ethers.Event[]> {
+  ): Promise<RawEvent[]> {
     const cacheKey = `${
       this.provider.network.chainId
     }-${fromBlock}-${address.join("")}`;
 
     const cached = await this.cache.get<{
       toBlock: number;
-      events: ethers.Event[];
+      events: RawEvent[];
     }>(cacheKey);
 
     if (cached) {
@@ -432,17 +449,53 @@ export class Indexer<T extends Storage> {
     toBlock: number,
     address: string[],
     depth = 0
-  ): Promise<ethers.Event[]> {
+  ): Promise<RawEvent[]> {
     try {
-      const events: ethers.Event[] = await this.provider.send("eth_getLogs", [
-        {
-          fromBlock: ethers.utils.hexValue(fromBlock),
-          toBlock: ethers.utils.hexValue(toBlock),
-          address: address,
-        },
-      ]);
+      // We don't use the Provider to get logs because it's
+      // too slow for calls that return thousands of events
+      const url = this.provider.connection.url;
 
-      return events;
+      const body = {
+        jsonprc: "2.0",
+        id: "1",
+        method: "eth_getLogs",
+        params: [
+          {
+            fromBlock: ethers.utils.hexValue(fromBlock),
+            toBlock: ethers.utils.hexValue(toBlock),
+            address: address,
+          },
+        ],
+      };
+
+      const response = await fetch(url, {
+        headers: {
+          "content-type": "application/json",
+        },
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+
+      const responseBody = (await response.json()) as {
+        error?: { code: number; message: string };
+        result?: RawEvent[];
+      };
+
+      if (responseBody.error) {
+        throw new Error(
+          `eth_getLogs failed, code: ${responseBody.error.code}, message: ${responseBody.error.message}`
+        );
+      }
+
+      if (responseBody.result) {
+        return responseBody.result;
+      }
+
+      throw new Error(
+        `eth_getLogs failed, unexpected response: ${JSON.stringify(
+          responseBody
+        )}`
+      );
     } catch (e) {
       this.log(
         Log.Debug,
@@ -457,19 +510,28 @@ export class Indexer<T extends Storage> {
         throw e;
       }
 
-      const middle = (fromBlock + toBlock) >> 1;
+      const chunks = [];
+      const step = Math.ceil((toBlock - fromBlock) / Math.min(depth, 2));
+
+      for (let i = fromBlock; i < toBlock; i += step + 1) {
+        chunks.push([i, Math.min(i + step, toBlock)]);
+      }
 
       return (
-        await Promise.all([
-          this.fetchLogs(fromBlock, middle, address),
-          this.fetchLogs(middle + 1, toBlock, address),
-        ])
+        await Promise.all(
+          chunks.map(([from, to]) => {
+            return this._fetchLogs(from, to, address, depth + 1);
+          })
+        )
       ).flat();
     }
   }
 }
 
-type Provider = ethers.providers.JsonRpcProvider;
+type Provider =
+  | ethers.providers.JsonRpcProvider
+  | ethers.providers.StaticJsonRpcProvider
+  | RetryProvider;
 
 export async function createIndexer<T extends Storage>(
   provider: Provider,
