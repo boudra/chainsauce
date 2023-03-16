@@ -58,8 +58,7 @@ indexer.subscribe("0x1234567890", MyContractABI);
 
 ## Complete examples
 
-- [SQLite Example](https://github.com/boudra/chainsauce/blob/main/examples/gitcoin/src/indexSqlite.js)
-- [JSON Example](https://github.com/boudra/chainsauce/blob/main/examples/gitcoin/src/indexJson.js)
+- [Allo Protocol Indexer](https://github.com/gitcoinco/allo-indexer)
 
 ## Why event sourcing? 🤔
 
