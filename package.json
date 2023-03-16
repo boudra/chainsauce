@@ -1,7 +1,7 @@
 {
   "name": "chainsauce",
   "type": "module",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Source EVM events for easy querying",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -10,7 +10,11 @@
     "dev": "tsc --watch",
     "build": "tsc"
   },
-  "keywords": ["evm", "event-sourcing", "web3"],
+  "keywords": [
+    "evm",
+    "event-sourcing",
+    "web3"
+  ],
   "author": "Mohamed Boudra",
   "license": "MIT",
   "dependencies": {
