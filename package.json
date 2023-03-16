@@ -2,7 +2,7 @@
   "name": "chainsauce",
   "type": "module",
   "version": "1.0.4",
-  "description": "",
+  "description": "Source EVM events for easy querying",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -10,9 +10,9 @@
     "dev": "tsc --watch",
     "build": "tsc"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": ["evm", "event-sourcing", "web3"],
+  "author": "Mohamed Boudra",
+  "license": "MIT",
   "dependencies": {
     "better-sqlite3": "^8.2.0",
     "ethers": "^5.7.2",
