@@ -77,7 +77,7 @@ export type Options = {
 export const defaultOptions: Options = {
   pollingInterval: 20 * 1000,
   logLevel: Log.Info,
-  getLogsMaxRetries: 10,
+  getLogsMaxRetries: 20,
   getLogsContractChunkSize: 25,
   eventCacheDirectory: "./.cache",
   toBlock: "latest",
@@ -118,16 +118,12 @@ export class Indexer<T extends Storage> {
     this.options = Object.assign(defaultOptions, options);
     this.cache = new Cache(this.options.eventCacheDirectory);
 
-    this.update = debounce(() => this._update(), 500, false);
-    this.writeToStorage = debounce(
-      () => {
-        if (this.storage.write) {
-          this.storage.write();
-        }
-      },
-      500,
-      false
-    );
+    this.update = debounce(() => this._update(), 500);
+    this.writeToStorage = debounce(() => {
+      if (this.storage.write) {
+        this.storage.write();
+      }
+    }, 500);
 
     if (this.subscriptions.length > 0) {
       this.update();

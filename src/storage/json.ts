@@ -1,30 +1,49 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { Storage, Subscription } from "../index";
 import { ethers } from "ethers";
 import fs from "node:fs/promises";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import debounce from "../debounce.js";
 
 type Document = { [key: string]: any };
 
 class Collection<T extends Document> {
   private filename: string;
+  private data: T[] | null = null;
+  private save: ReturnType<typeof debounce>;
 
   constructor(filename: string) {
     this.filename = filename;
+    this.save = debounce(() => this._save(), 500);
     mkdirSync(path.dirname(filename), { recursive: true });
   }
 
   private async load(): Promise<T[]> {
     try {
-      return JSON.parse((await fs.readFile(this.filename)).toString()) as T[];
+      if (this.data !== null) {
+        return this.data;
+      }
+
+      this.data = JSON.parse(
+        (await fs.readFile(this.filename)).toString()
+      ) as T[];
     } catch {
-      return [];
+      this.data = [];
     }
+
+    return this.data;
   }
 
-  private async save(data: T[]) {
-    return await fs.writeFile(this.filename, JSON.stringify(data));
+  private async _save() {
+    if (this.data === null) {
+      throw new Error("Saving without loading first!");
+    }
+
+    const rt = await fs.writeFile(this.filename, JSON.stringify(this.data));
+    this.data == null;
+    return rt;
   }
 
   async insert(document: T): Promise<T> {
@@ -32,11 +51,11 @@ class Collection<T extends Document> {
       throw new Error("T must be an object");
     }
 
-    const data = await this.load();
+    await this.load();
 
-    data.push(document);
+    this.data!.push(document);
 
-    await this.save(data);
+    this.save();
 
     return document;
   }
@@ -47,14 +66,15 @@ class Collection<T extends Document> {
   }
 
   async updateById(id: string, fun: (doc: T) => T): Promise<T> {
-    const data = await this.load();
-    const index = data.findIndex((doc: T) => doc.id === id);
+    await this.load();
 
-    data[index] = fun(data[index]);
+    const index = this.data!.findIndex((doc: T) => doc.id === id);
 
-    const item = data[index];
+    this.data![index] = fun(this.data![index]);
 
-    await this.save(data);
+    const item = this.data![index];
+
+    this.save();
 
     return item;
   }
@@ -63,36 +83,37 @@ class Collection<T extends Document> {
     filter: (doc: T) => boolean,
     fun: (doc: T) => T
   ): Promise<T> {
-    const data = await this.load();
-    const index = data.findIndex(filter);
+    await this.load();
+    const index = this.data!.findIndex(filter);
 
-    data[index] = fun(data[index]);
+    this.data![index] = fun(this.data![index]);
 
-    const item = data[index];
+    const item = this.data![index];
 
-    await this.save(data);
+    this.save();
 
     return item;
   }
 
   async findWhere(filter: (doc: T) => boolean): Promise<T[]> {
-    const data = await this.load();
-    return data.filter(filter);
+    await this.load();
+    return this.data!.filter(filter);
   }
 
   async findOneWhere(filter: (doc: T) => boolean): Promise<T | undefined> {
-    const data = await this.load();
-    return data.find(filter);
+    await this.load();
+    return this.data!.find(filter);
   }
 
   async all(): Promise<T[]> {
-    const data = await this.load();
-    return data;
+    await this.load();
+    return this.data!;
   }
 
   async replaceAll(data: T[]): Promise<T[]> {
-    await this.save(data);
-    return data;
+    this.data = data;
+    this.save();
+    return this.data;
   }
 }
 
