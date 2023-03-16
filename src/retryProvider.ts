@@ -18,8 +18,8 @@ export class RetryProvider extends ethers.providers.StaticJsonRpcProvider {
             return result;
           },
           (error: { statusCode: number }) => {
-            console.error("FAILED", error);
-            if (error.statusCode !== 429 || attempts >= this.attempts) {
+            console.error("FAILED", error, attempts, this.attempts);
+            if (error.statusCode !== 429 && attempts >= this.attempts) {
               return Promise.reject(error);
             } else {
               return Promise.resolve(undefined);

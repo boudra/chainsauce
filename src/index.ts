@@ -336,7 +336,7 @@ export class Indexer<T extends Storage> {
                 });
             }
           } catch (e) {
-            console.error("Failed to apply event", event);
+            this.log(Log.Error, "Failed to apply event", event);
             throw e;
           }
 
