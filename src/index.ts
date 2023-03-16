@@ -10,6 +10,8 @@ export { RetryProvider } from "./retryProvider.js";
 export { default as JsonStorage } from "./storage/json.js";
 export { default as SqliteStorage } from "./storage/sqlite.js";
 
+export { Cache };
+
 export type RawEvent = {
   address: string;
   blockHash: string;
