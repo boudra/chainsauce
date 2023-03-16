@@ -65,10 +65,14 @@ class Collection<T extends Document> {
     return data.find((doc: T) => doc.id === id);
   }
 
-  async updateById(id: string, fun: (doc: T) => T): Promise<T> {
+  async updateById(id: string, fun: (doc: T) => T): Promise<T | undefined> {
     await this.load();
 
     const index = this.data!.findIndex((doc: T) => doc.id === id);
+
+    if (index < 0) {
+      return undefined;
+    }
 
     this.data![index] = fun(this.data![index]);
 
@@ -82,9 +86,13 @@ class Collection<T extends Document> {
   async updateOneWhere(
     filter: (doc: T) => boolean,
     fun: (doc: T) => T
-  ): Promise<T> {
+  ): Promise<T | undefined> {
     await this.load();
     const index = this.data!.findIndex(filter);
+
+    if (index < 0) {
+      return undefined;
+    }
 
     this.data![index] = fun(this.data![index]);
 
