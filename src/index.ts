@@ -37,7 +37,7 @@ export type Event = {
 export type EventHandler<T extends Storage> = (
   indexer: Indexer<T>,
   event: Event
-) => Promise<void> | (() => Promise<void>);
+) => Promise<void | (() => Promise<void>)>;
 
 export type Subscription = {
   address: string;
