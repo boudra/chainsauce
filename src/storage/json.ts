@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { Storage, Subscription } from "../index";
 import { ethers } from "ethers";
-import fs from "node:fs/promises";
+import fs from "node:fs";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import debounce from "../debounce.js";
@@ -20,15 +20,13 @@ class Collection<T extends Document> {
     mkdirSync(path.dirname(filename), { recursive: true });
   }
 
-  private async load(): Promise<T[]> {
+  private load(): T[] {
     try {
       if (this.data !== null) {
         return this.data;
       }
 
-      this.data = JSON.parse(
-        (await fs.readFile(this.filename)).toString()
-      ) as T[];
+      this.data = JSON.parse(fs.readFileSync(this.filename).toString()) as T[];
     } catch {
       this.data = [];
     }
@@ -36,42 +34,42 @@ class Collection<T extends Document> {
     return this.data;
   }
 
-  private async _save() {
+  private _save() {
     if (this.data === null) {
       throw new Error("Saving without loading first!");
     }
 
-    const rt = await fs.writeFile(this.filename, JSON.stringify(this.data));
+    const rt = fs.writeFileSync(this.filename, JSON.stringify(this.data));
     this.data == null;
     return rt;
   }
 
-  async insert(document: T): Promise<T> {
+  insert(document: T): Promise<T> {
     if (typeof document !== "object") {
       throw new Error("T must be an object");
     }
 
-    await this.load();
+    this.load();
 
     this.data!.push(document);
 
     this.save();
 
-    return document;
+    return Promise.resolve(document);
   }
 
-  async findById(id: any): Promise<T | undefined> {
-    const data = await this.load();
-    return data.find((doc: T) => doc.id === id);
+  findById(id: any): Promise<T | undefined> {
+    const data = this.load();
+    return Promise.resolve(data.find((doc: T) => doc.id === id));
   }
 
-  async updateById(id: string, fun: (doc: T) => T): Promise<T | undefined> {
-    await this.load();
+  updateById(id: string, fun: (doc: T) => T): Promise<T | undefined> {
+    this.load();
 
     const index = this.data!.findIndex((doc: T) => doc.id === id);
 
     if (index < 0) {
-      return undefined;
+      return Promise.resolve(undefined);
     }
 
     this.data![index] = fun(this.data![index]);
@@ -80,18 +78,36 @@ class Collection<T extends Document> {
 
     this.save();
 
-    return item;
+    return Promise.resolve(item);
   }
 
-  async updateOneWhere(
+  // returns true it inserted a new record
+  upsertById(id: string, fun: (doc: T | undefined) => T): Promise<boolean> {
+    this.load();
+
+    const index = this.data!.findIndex((doc: T) => doc.id === id);
+
+    if (index < 0) {
+      this.data!.push(fun(undefined));
+    } else {
+      this.data![index] = fun(this.data![index]);
+    }
+
+    this.save();
+
+    return Promise.resolve(index < 0);
+  }
+
+  updateOneWhere(
     filter: (doc: T) => boolean,
     fun: (doc: T) => T
   ): Promise<T | undefined> {
-    await this.load();
+    this.load();
+
     const index = this.data!.findIndex(filter);
 
     if (index < 0) {
-      return undefined;
+      return Promise.resolve(undefined);
     }
 
     this.data![index] = fun(this.data![index]);
@@ -100,21 +116,21 @@ class Collection<T extends Document> {
 
     this.save();
 
-    return item;
+    return Promise.resolve(item);
   }
 
   async findWhere(filter: (doc: T) => boolean): Promise<T[]> {
-    await this.load();
+    this.load();
     return this.data!.filter(filter);
   }
 
   async findOneWhere(filter: (doc: T) => boolean): Promise<T | undefined> {
-    await this.load();
+    this.load();
     return this.data!.find(filter);
   }
 
   async all(): Promise<T[]> {
-    await this.load();
+    this.load();
     return this.data!;
   }
 
@@ -135,7 +151,7 @@ export default class JsonStorage implements Storage {
   }
 
   async init() {
-    await fs.mkdir(this.dir, { recursive: true });
+    fs.mkdirSync(this.dir, { recursive: true });
   }
 
   collection<T extends Document>(key: string) {
@@ -181,9 +197,6 @@ export default class JsonStorage implements Storage {
       index[name] = `${name}.json`;
     }
 
-    await fs.writeFile(
-      path.join(this.dir, `_index.json`),
-      JSON.stringify(index)
-    );
+    fs.writeFileSync(path.join(this.dir, `_index.json`), JSON.stringify(index));
   }
 }
