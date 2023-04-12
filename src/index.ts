@@ -69,7 +69,7 @@ export type Options = {
   logLevel: Log;
   getLogsMaxRetries: number;
   getLogsContractChunkSize: number;
-  eventCacheDirectory: string;
+  eventCacheDirectory: string | null;
   toBlock: ToBlock;
   runOnce: boolean;
 };
@@ -116,7 +116,12 @@ export class Indexer<T extends Storage> {
     this.subscriptions = subscriptions;
     this.storage = persistence;
     this.options = Object.assign(defaultOptions, options);
-    this.cache = new Cache(this.options.eventCacheDirectory);
+
+    if (this.options.eventCacheDirectory) {
+      this.cache = new Cache(this.options.eventCacheDirectory);
+    } else {
+      this.cache = new Cache("", true);
+    }
 
     this.update = debounce(() => this._update(), 500);
     this.writeToStorage = debounce(() => {

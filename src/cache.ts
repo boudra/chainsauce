@@ -6,10 +6,12 @@ import { mkdirSync } from "node:fs";
 export default class Cache {
   private dir: string;
   private loading: Record<string, Promise<unknown>>;
+  private isDisabled: boolean;
 
-  constructor(dir: string) {
+  constructor(dir: string, isDisabled = false) {
     this.dir = dir;
     this.loading = {};
+    this.isDisabled = isDisabled;
     mkdirSync(this.dir, { recursive: true });
   }
 
@@ -22,6 +24,10 @@ export default class Cache {
   }
 
   async get<T>(key: string): Promise<T | undefined> {
+    if (this.isDisabled) {
+      return undefined;
+    }
+
     const filename = this.filename(key);
 
     try {
