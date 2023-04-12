@@ -1,12 +1,16 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { mkdirSync } from "node:fs";
 
 export default class Cache {
   private dir: string;
+  private loading: Record<string, Promise<unknown>>;
 
   constructor(dir: string) {
     this.dir = dir;
+    this.loading = {};
+    mkdirSync(this.dir, { recursive: true });
   }
 
   private key(key: string) {
@@ -27,16 +31,30 @@ export default class Cache {
     }
   }
 
-  async lazy<T>(key: string, fun: () => Promise<T>): Promise<T> {
-    const cachedValue = await this.get<T>(key);
-
-    if (cachedValue) {
-      return cachedValue;
-    } else {
-      const value = await fun();
-      this.set(key, value);
-      return value;
+  lazy<T>(key: string, fun: () => Promise<T>): Promise<T> {
+    if (this.loading[key] !== undefined) {
+      return this.loading[key] as Promise<T>;
     }
+
+    this.loading[key] = this.get<T>(key).then((cachedValue) => {
+      if (cachedValue) {
+        return cachedValue;
+      } else {
+        const promise = fun();
+
+        promise.then((value) => {
+          this.set(key, value);
+        });
+
+        return promise;
+      }
+    });
+
+    this.loading[key].then(() => {
+      delete this.loading[key];
+    });
+
+    return this.loading[key] as Promise<T>;
   }
 
   async set(key: string, value: unknown) {
