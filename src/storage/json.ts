@@ -189,14 +189,4 @@ export default class JsonStorage implements Storage {
       }))
     );
   }
-
-  async write(): Promise<void> {
-    const index: { [key: string]: string } = {};
-
-    for (const name in this.collections) {
-      index[name] = `${name}.json`;
-    }
-
-    fs.writeFileSync(path.join(this.dir, `_index.json`), JSON.stringify(index));
-  }
 }
