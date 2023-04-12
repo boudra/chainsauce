@@ -1,11 +1,17 @@
+type Debounced<F extends (...args: unknown[]) => unknown> = F & {
+  cancel: () => void;
+  isScheduled: () => boolean;
+  now: (...args: Parameters<F>) => void;
+};
+
 export default function debounce<F extends (...args: unknown[]) => unknown>(
   func: F,
   wait: number
-) {
+): Debounced<F> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
 
-  return function executedFunction(...args: Parameters<F>) {
-    const later = function () {
+  const debounced = function (...args: Parameters<F>) {
+    const later = () => {
       timeout = undefined;
       func(...args);
     };
@@ -13,5 +19,20 @@ export default function debounce<F extends (...args: unknown[]) => unknown>(
     clearTimeout(timeout);
 
     timeout = setTimeout(later, wait);
+  } as Debounced<F>;
+
+  debounced.cancel = () => {
+    clearTimeout(timeout);
   };
+
+  debounced.now = (...args: Parameters<F>) => {
+    clearTimeout(timeout);
+    func(...args);
+  };
+
+  debounced.isScheduled = () => {
+    return timeout !== undefined;
+  };
+
+  return debounced;
 }
