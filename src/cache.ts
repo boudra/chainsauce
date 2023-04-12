@@ -12,7 +12,10 @@ export default class Cache {
     this.dir = dir;
     this.loading = {};
     this.isDisabled = isDisabled;
-    mkdirSync(this.dir, { recursive: true });
+
+    if (!this.isDisabled) {
+      mkdirSync(this.dir, { recursive: true });
+    }
   }
 
   private key(key: string) {
@@ -32,6 +35,20 @@ export default class Cache {
 
     try {
       return JSON.parse((await fs.readFile(filename)).toString());
+    } catch {
+      return undefined;
+    }
+  }
+
+  async set(key: string, value: unknown) {
+    if (this.isDisabled) {
+      return;
+    }
+
+    const filename = this.filename(key);
+
+    try {
+      await fs.writeFile(filename, JSON.stringify(value));
     } catch {
       return undefined;
     }
@@ -61,15 +78,5 @@ export default class Cache {
     });
 
     return this.loading[key] as Promise<T>;
-  }
-
-  async set(key: string, value: unknown) {
-    const filename = this.filename(key);
-
-    try {
-      await fs.writeFile(filename, JSON.stringify(value));
-    } catch {
-      return undefined;
-    }
   }
 }
