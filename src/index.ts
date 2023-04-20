@@ -485,6 +485,14 @@ export class Indexer<T extends Storage> {
       };
 
       if (responseBody.error) {
+        // back off if we get rate limited
+        if (
+          responseBody.error?.code == 429 &&
+          depth < this.options.getLogsMaxRetries
+        ) {
+          await new Promise((r) => setTimeout(r, (depth + 1) * 1000));
+        }
+
         throw new Error(
           `eth_getLogs failed, code: ${responseBody.error.code}, message: ${responseBody.error.message}`
         );
