@@ -148,7 +148,7 @@ export class Indexer<T extends Storage> {
   }
 
   private log(level: Log, ...data: unknown[]) {
-    if (this.options.logLevel == Log.None) {
+    if (level < this.options.logLevel) {
       return;
     }
 
@@ -190,7 +190,7 @@ export class Indexer<T extends Storage> {
 
         if (outdatedSubscriptions.length > 0) {
           this.log(
-            Log.Info,
+            Log.Debug,
             "Fetching events for",
             outdatedSubscriptions.length,
             "subscriptions",
@@ -244,7 +244,7 @@ export class Indexer<T extends Storage> {
 
                 if (eventLogs.length > 0) {
                   this.log(
-                    Log.Info,
+                    Log.Debug,
                     "Fetched events (",
                     eventLogs.length,
                     ")",
@@ -354,7 +354,7 @@ export class Indexer<T extends Storage> {
         }
 
         if (appliedEventCount > 0) {
-          this.log(Log.Info, "Applied", appliedEventCount, "events");
+          this.log(Log.Debug, "Applied", appliedEventCount, "events");
         }
 
         for (const subscription of outdatedSubscriptions) {
@@ -514,7 +514,8 @@ export class Indexer<T extends Storage> {
         fromBlock,
         "to",
         toBlock,
-        "retrying smaller range ..."
+        "retrying smaller range ...",
+        e
       );
 
       if (depth === this.options.getLogsMaxRetries) {
