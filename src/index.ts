@@ -181,7 +181,7 @@ export class Indexer<T extends Storage> {
       while (true) {
         const subscriptionCount = this.subscriptions.length;
         const outdatedSubscriptions = this.subscriptions.filter((sub) => {
-          return sub.fromBlock < this.lastBlock;
+          return sub.fromBlock <= this.lastBlock;
         });
 
         if (outdatedSubscriptions.length === 0 && pendingEvents.length === 0) {
@@ -358,7 +358,7 @@ export class Indexer<T extends Storage> {
         }
 
         for (const subscription of outdatedSubscriptions) {
-          subscription.fromBlock = this.lastBlock;
+          subscription.fromBlock = this.lastBlock + 1;
         }
 
         this.storage.setSubscriptions(this.subscriptions);
@@ -366,7 +366,7 @@ export class Indexer<T extends Storage> {
       }
 
       this.log(Log.Info, "Indexed up to", this.lastBlock);
-      this.currentIndexedBlock = this.lastBlock;
+      this.currentIndexedBlock = this.lastBlock + 1;
 
       this.storage.setSubscriptions(this.subscriptions);
 
