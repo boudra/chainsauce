@@ -333,12 +333,12 @@ export class Indexer<T extends Storage> {
 
             // handle thunk
             if (typeof ret === "function") {
-              ret()
-                .then()
-                .catch((e) => {
-                  this.log(Log.Error, "Failed to apply event", event);
-                  this.log(Log.Error, e);
-                });
+              ret().catch((e) => {
+                this.log(Log.Error, "Failed to apply event", event);
+                this.log(Log.Error, e);
+                this.log(Log.Error, "Exiting...");
+                process.exit(1);
+              });
             }
           } catch (e) {
             this.log(Log.Error, "Failed to apply event", event);
