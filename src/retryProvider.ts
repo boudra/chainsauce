@@ -36,6 +36,7 @@ export class RetryProvider extends ethers.providers.StaticJsonRpcProvider {
       const response = await ethers.utils.poll(
         async () => {
           attempts++;
+
           return super.perform(method, params).then(
             (result) => {
               return result;

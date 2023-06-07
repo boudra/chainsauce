@@ -2,6 +2,12 @@ import type { Storage, Subscription } from "../index";
 import { ethers } from "ethers";
 import { Database } from "better-sqlite3";
 
+type SubConfig = {
+  address: string;
+  abi: string;
+  fromBlock: number;
+};
+
 export default class SqliteStorage implements Storage {
   db: Database;
 
@@ -25,11 +31,15 @@ export default class SqliteStorage implements Storage {
     return this.db
       .prepare("SELECT * FROM __subscriptions")
       .all()
-      .map((sub: { address: string; abi: string; fromBlock: number }) => ({
-        address: sub.address,
-        contract: new ethers.Contract(sub.address, JSON.parse(sub.abi)),
-        fromBlock: sub.fromBlock,
-      }));
+      .map((sub) => {
+        const _sub = sub as SubConfig;
+
+        return {
+          address: _sub.address,
+          contract: new ethers.Contract(_sub.address, JSON.parse(_sub.abi)),
+          fromBlock: _sub.fromBlock,
+        };
+      });
   }
 
   async setSubscriptions(subscriptions: Subscription[]): Promise<void> {

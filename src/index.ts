@@ -2,12 +2,11 @@ import { ethers } from "ethers";
 
 import Cache from "./cache.js";
 import debounce from "./debounce.js";
-import fetch from "node-fetch";
 import { RetryProvider } from "./retryProvider.js";
 
 export { RetryProvider } from "./retryProvider.js";
 
-export { default as JsonStorage } from "./storage/json.js";
+export { default as IdbStorage } from "./storage/idb.js";
 export { default as SqliteStorage } from "./storage/sqlite.js";
 
 export { Cache };
@@ -69,7 +68,7 @@ export type Options = {
   logLevel: Log;
   getLogsMaxRetries: number;
   getLogsContractChunkSize: number;
-  eventCacheDirectory: string | null;
+  enableCache: boolean;
   toBlock: ToBlock;
   runOnce: boolean;
 };
@@ -77,9 +76,9 @@ export type Options = {
 export const defaultOptions: Options = {
   pollingInterval: 20 * 1000,
   logLevel: Log.Info,
-  getLogsMaxRetries: 20,
+  getLogsMaxRetries: 2,
   getLogsContractChunkSize: 25,
-  eventCacheDirectory: "./.cache",
+  enableCache: true,
   toBlock: "latest",
   runOnce: false,
 };
@@ -116,19 +115,17 @@ export class Indexer<T extends Storage> {
     this.subscriptions = subscriptions;
     this.storage = persistence;
     this.options = Object.assign(defaultOptions, options);
+    this.cache = new Cache(options.enableCache);
 
-    if (this.options.eventCacheDirectory) {
-      this.cache = new Cache(this.options.eventCacheDirectory);
-    } else {
-      this.cache = new Cache("", true);
-    }
+    console.log("storage", this.storage);
+    console.log("subscriptions", this.subscriptions);
 
-    this.update = debounce(() => this._update(), 500);
+    this.update = debounce(() => this._update(), 5000);
     this.writeToStorage = debounce(() => {
       if (this.storage.write) {
         this.storage.write();
       }
-    }, 500);
+    }, 5000);
 
     if (this.subscriptions.length > 0) {
       this.update();
@@ -389,7 +386,10 @@ export class Indexer<T extends Storage> {
       return existing.contract;
     }
 
-    const contract = new ethers.Contract(address, abi, this.provider);
+    let provider = this.provider;
+
+    this.log(Log.Info, "Subscribing", provider);
+    const contract = new ethers.Contract(address, abi);
 
     fromBlock = Math.max(this.currentIndexedBlock, fromBlock);
 
@@ -400,6 +400,8 @@ export class Indexer<T extends Storage> {
       contract,
       fromBlock: fromBlock,
     });
+
+    this.log(Log.Info, "Contract", contract);
 
     this.update();
 
@@ -432,7 +434,10 @@ export class Indexer<T extends Storage> {
 
         const allEvents = events.concat(newEvents);
 
-        this.cache.set(cacheKey, { toBlock, events: allEvents });
+        this.cache.set(
+          cacheKey,
+          JSON.stringify({ toBlock, events: allEvents })
+        );
 
         return allEvents;
       }
@@ -442,7 +447,7 @@ export class Indexer<T extends Storage> {
 
     const events = await this._fetchLogs(fromBlock, toBlock, address);
 
-    this.cache.set(cacheKey, { toBlock, events });
+    this.cache.set(cacheKey, JSON.stringify({ toBlock, events }));
 
     return events;
   }
@@ -456,7 +461,9 @@ export class Indexer<T extends Storage> {
     try {
       // We don't use the Provider to get logs because it's
       // too slow for calls that return thousands of events
-      const url = this.provider.connection.url;
+      // const url = this.provider.connection.url;
+
+      // const url = "https://rpc.gnosis.gateway.fm";
 
       const body = {
         jsonprc: "2.0",
@@ -464,14 +471,14 @@ export class Indexer<T extends Storage> {
         method: "eth_getLogs",
         params: [
           {
-            fromBlock: ethers.utils.hexValue(fromBlock),
-            toBlock: ethers.utils.hexValue(toBlock),
+            fromBlock: fromBlock,
+            toBlock: toBlock,
             address: address,
           },
         ],
       };
 
-      const response = await fetch(url, {
+      const response = await fetch("https://rpc.gnosischain.com", {
         headers: {
           "content-type": "application/json",
         },
@@ -551,16 +558,14 @@ export async function createIndexer<T extends Storage>(
   handleEvent: EventHandler<T>,
   options?: Partial<Options>
 ): Promise<Indexer<T>> {
-  if (database.read) {
-    await database.read();
+  if (!database.init) {
+    throw new Error("Storage must implement init");
   }
-
-  if (database.init) {
-    await database.init();
-  }
+  await database.init();
 
   const subscriptions = await database.getSubscriptions();
   const network = await provider.getNetwork();
+
   return new Indexer(
     provider,
     network,

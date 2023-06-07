@@ -1,54 +1,45 @@
-import crypto from "node:crypto";
-import fs from "node:fs/promises";
-import path from "node:path";
-import { mkdirSync } from "node:fs";
-
 export default class Cache {
-  private dir: string;
+  private localStorage: Storage | null = null;
   private loading: Record<string, Promise<unknown>>;
   private isDisabled: boolean;
 
-  constructor(dir: string, isDisabled = false) {
-    this.dir = dir;
+  constructor(isDisabled = false) {
     this.loading = {};
     this.isDisabled = isDisabled;
 
-    if (!this.isDisabled) {
-      mkdirSync(this.dir, { recursive: true });
+    try {
+      this.localStorage = window.localStorage;
+    } catch {
+      console.warn("LocalStorage not available, caching disabled");
+      this.localStorage = null;
+      this.isDisabled = true;
     }
-  }
-
-  private key(key: string) {
-    return crypto.createHash("sha256").update(key).digest("hex");
-  }
-
-  private filename(key: string) {
-    return path.join(this.dir, this.key(key));
   }
 
   async get<T>(key: string): Promise<T | undefined> {
-    if (this.isDisabled) {
+    if (this.isDisabled || !this.localStorage) {
       return undefined;
     }
 
-    const filename = this.filename(key);
-
     try {
-      return JSON.parse((await fs.readFile(filename)).toString());
+      const res = this.localStorage.getItem(key);
+      if (!res) {
+        return undefined;
+      }
+
+      return JSON.parse(res) as T;
     } catch {
       return undefined;
     }
   }
 
-  async set(key: string, value: unknown) {
-    if (this.isDisabled) {
+  async set(key: string, value: string) {
+    if (this.isDisabled || !this.localStorage) {
       return;
     }
 
-    const filename = this.filename(key);
-
     try {
-      await fs.writeFile(filename, JSON.stringify(value));
+      this.localStorage.setItem(key, value);
     } catch {
       return undefined;
     }
@@ -66,7 +57,7 @@ export default class Cache {
         const promise = fun();
 
         promise.then((value) => {
-          this.set(key, value);
+          this.set(key, JSON.stringify(value));
         });
 
         return promise;

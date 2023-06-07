@@ -1,5 +1,6 @@
 MIT License
 
+Copyright (c) 2023 bitbeckers
 Copyright (c) 2023 Mohamed Boudra
 
 Permission is hereby granted, free of charge, to any person obtaining a copy

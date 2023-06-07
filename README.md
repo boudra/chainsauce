@@ -7,7 +7,9 @@
 
 -------
 
-Chainsauce is a general-purpose EVM indexer that sources contract events to build easily queryable data. It works in the browser and in Node.
+Fork of [Chainsauce] that's client side only using IndexedDB for caching.
+
+Chainsauce is a general-purpose EVM indexer that sources contract events to build easily queryable data. It works in the browser.
 
 ## How does it work?
 
