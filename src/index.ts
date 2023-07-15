@@ -1,4 +1,5 @@
 import { ethers } from "ethers";
+import { Logger } from "pino";
 
 import Cache from "./cache.js";
 import debounce from "./debounce.js";
@@ -66,21 +67,22 @@ export type ToBlock = "latest" | number;
 
 export type Options = {
   pollingInterval: number;
-  logLevel: Log;
   getLogsMaxRetries: number;
   getLogsContractChunkSize: number;
   eventCacheDirectory: string | null;
   toBlock: ToBlock;
   runOnce: boolean;
+  logLevel?: Log;
+  logger?: Logger;
 };
 
 export const defaultOptions: Options = {
   pollingInterval: 20 * 1000,
-  logLevel: Log.Info,
   getLogsMaxRetries: 20,
   getLogsContractChunkSize: 25,
   eventCacheDirectory: "./.cache",
   toBlock: "latest",
+  logLevel: Log.Info,
   runOnce: false,
 };
 
@@ -148,18 +150,28 @@ export class Indexer<T extends Storage> {
   }
 
   private log(level: Log, ...data: unknown[]) {
-    if (level < this.options.logLevel) {
-      return;
-    }
-
-    if (level === Log.Warning) {
-      console.warn(`[${this.chainName}][warn]`, ...data);
-    } else if (level === Log.Error) {
-      console.error(`[${this.chainName}][error]`, ...data);
-    } else if (level === Log.Debug) {
-      console.debug(`[${this.chainName}][debug]`, ...data);
-    } else {
-      console.log(`[${this.chainName}][info]`, ...data);
+    if (this.options.logger) {
+      const msg = data.map((d) => String(d)).join(" ");
+      const logger = this.options.logger;
+      if (level === Log.Warning) {
+        logger.warn(msg);
+      } else if (level === Log.Error) {
+        logger.error(msg);
+      } else if (level === Log.Debug) {
+        logger.debug(msg);
+      } else {
+        logger.info(msg);
+      }
+    } else if (typeof this.options.logLevel === "string") {
+      if (level === Log.Warning) {
+        console.warn(`[${this.chainName}][warn]`, ...data);
+      } else if (level === Log.Error) {
+        console.error(`[${this.chainName}][error]`, ...data);
+      } else if (level === Log.Debug) {
+        console.debug(`[${this.chainName}][debug]`, ...data);
+      } else {
+        console.log(`[${this.chainName}][info]`, ...data);
+      }
     }
   }
 
