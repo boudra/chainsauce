@@ -117,7 +117,7 @@ export class Indexer<T extends Storage> {
     this.eventHandler = handleEvent;
     this.subscriptions = subscriptions;
     this.storage = persistence;
-    this.options = Object.assign(defaultOptions, options);
+    this.options = { ...defaultOptions, ...options };
 
     if (this.options.eventCacheDirectory) {
       this.cache = new Cache(this.options.eventCacheDirectory);
