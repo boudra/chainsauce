@@ -71,9 +71,9 @@ export type Options = {
   getLogsContractChunkSize: number;
   eventCacheDirectory: string | null;
   toBlock: ToBlock;
-  runOnce: boolean;
   logLevel?: Log;
   logger?: Logger;
+  onProgress?: (info: { currentBlock: number; lastBlock: number }) => void;
 };
 
 export const defaultOptions: Options = {
@@ -83,7 +83,6 @@ export const defaultOptions: Options = {
   eventCacheDirectory: "./.cache",
   toBlock: "latest",
   logLevel: Log.Info,
-  runOnce: false,
 };
 
 export class Indexer<T extends Storage> {
@@ -149,6 +148,10 @@ export class Indexer<T extends Storage> {
     );
   }
 
+  stop() {
+    clearInterval(this.pollingTimer);
+  }
+
   private log(level: Log, ...data: unknown[]) {
     if (this.options.logger) {
       const msg = data.map((d) => String(d)).join(" ");
@@ -186,6 +189,11 @@ export class Indexer<T extends Storage> {
       } else {
         this.lastBlock = this.options.toBlock;
       }
+
+      this.options.onProgress?.({
+        currentBlock: this.currentIndexedBlock,
+        lastBlock: this.lastBlock,
+      });
 
       let pendingEvents: Event[] = [];
 
@@ -378,12 +386,18 @@ export class Indexer<T extends Storage> {
       }
 
       this.log(Log.Info, "Indexed up to", this.lastBlock);
-      this.currentIndexedBlock = this.lastBlock + 1;
+      this.currentIndexedBlock = this.lastBlock;
+
+      this.options.onProgress?.({
+        currentBlock: this.currentIndexedBlock,
+        lastBlock: this.lastBlock,
+      });
 
       this.storage.setSubscriptions(this.subscriptions);
 
-      if (this.lastBlock === this.options.toBlock || this.options.runOnce) {
-        clearInterval(this.pollingTimer);
+      // XXX shouldn't this be this.currentIndexedBlochk === this.options.toBlock ?
+      if (this.lastBlock === this.options.toBlock) {
+        this.stop();
       }
     } finally {
       this.isUpdating = false;
@@ -403,7 +417,7 @@ export class Indexer<T extends Storage> {
 
     const contract = new ethers.Contract(address, abi, this.provider);
 
-    fromBlock = Math.max(this.currentIndexedBlock, fromBlock);
+    fromBlock = Math.max(this.currentIndexedBlock + 1, fromBlock);
 
     this.log(Log.Info, "Subscribed", contract.address, "from block", fromBlock);
 
