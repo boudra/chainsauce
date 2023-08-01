@@ -385,7 +385,8 @@ export class Indexer<T extends Storage> {
         this.writeToStorage();
       }
 
-      this.log(Log.Info, "Indexed up to", this.lastBlock);
+      // leave this to the caller via onProgress
+      // this.log(Log.Info, "Indexed up to", this.lastBlock);
       this.currentIndexedBlock = this.lastBlock;
 
       this.options.onProgress?.({
