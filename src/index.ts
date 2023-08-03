@@ -74,6 +74,7 @@ export type Options = {
   logLevel?: Log;
   logger?: Logger;
   onProgress?: (info: { currentBlock: number; lastBlock: number }) => void;
+  requireExplicitStart?: boolean;
 };
 
 export const defaultOptions: Options = {
@@ -129,8 +130,14 @@ export class Indexer<T extends Storage> {
       }
     }, 500);
 
-    if (this.subscriptions.length > 0) {
-      this.update();
+    if (!this.options.requireExplicitStart) {
+      this.start();
+    }
+  }
+
+  start() {
+    if (this.pollTimeoutId !== null) {
+      throw new Error("Already started");
     }
 
     this.poll();
@@ -138,7 +145,7 @@ export class Indexer<T extends Storage> {
     this.log(
       Log.Info,
       "Initialized indexer with",
-      subscriptions.length,
+      this.subscriptions.length,
       "contract subscriptions"
     );
   }
