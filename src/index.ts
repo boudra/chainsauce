@@ -144,9 +144,7 @@ export class Indexer<T extends Storage> {
 
     this.log(
       Log.Info,
-      "Initialized indexer with",
-      this.subscriptions.length,
-      "contract subscriptions"
+      `Initialized indexer with ${this.subscriptions.length} contract subscriptions`
     );
   }
 
@@ -174,9 +172,8 @@ export class Indexer<T extends Storage> {
     );
   }
 
-  private log(level: Log, ...data: unknown[]) {
+  private log(level: Log, msg: string) {
     if (this.options.logger) {
-      const msg = data.map((d) => String(d)).join(" ");
       const logger = this.options.logger;
       if (level === Log.Warning) {
         logger.warn(msg);
@@ -189,13 +186,13 @@ export class Indexer<T extends Storage> {
       }
     } else if (typeof this.options.logLevel === "string") {
       if (level === Log.Warning) {
-        console.warn(`[${this.chainName}][warn]`, ...data);
+        console.warn(`[${this.chainName}][warn]`, msg);
       } else if (level === Log.Error) {
-        console.error(`[${this.chainName}][error]`, ...data);
+        console.error(`[${this.chainName}][error]`, msg);
       } else if (level === Log.Debug) {
-        console.debug(`[${this.chainName}][debug]`, ...data);
+        console.debug(`[${this.chainName}][debug]`, msg);
       } else {
-        console.log(`[${this.chainName}][info]`, ...data);
+        console.log(`[${this.chainName}][info]`, msg);
       }
     }
   }
@@ -228,11 +225,7 @@ export class Indexer<T extends Storage> {
       if (outdatedSubscriptions.length > 0) {
         this.log(
           Log.Debug,
-          "Fetching events for",
-          outdatedSubscriptions.length,
-          "subscriptions",
-          "to block",
-          this.lastBlock
+          `Fetching events for ${outdatedSubscriptions.length} subscriptions to block ${this.lastBlock}`
         );
       }
 
@@ -280,13 +273,7 @@ export class Indexer<T extends Storage> {
               if (eventLogs.length > 0) {
                 this.log(
                   Log.Debug,
-                  "Fetched events (",
-                  eventLogs.length,
-                  ")",
-                  "Range:",
-                  from,
-                  "to",
-                  to
+                  `Fetched events (${eventLogs.length}) Range: ${from} to ${to}`
                 );
               }
 
@@ -297,13 +284,7 @@ export class Indexer<T extends Storage> {
                   if (!fragmentContract) {
                     this.log(
                       Log.Warning,
-                      "Unrecognized event",
-                      "Address:",
-                      log.address,
-                      "TxHash:",
-                      log.transactionHash,
-                      "Topic:",
-                      log.topics[0]
+                      `Unrecognized event. Address: ${log.address}, TxHash: ${log.transactionHash}, Topic: ${log.topics[0]}`
                     );
 
                     return [];
@@ -331,12 +312,7 @@ export class Indexer<T extends Storage> {
                 } catch (e) {
                   this.log(
                     Log.Error,
-                    "Failed to parse event",
-                    log.address,
-                    "Tx Hash:",
-                    log.transactionHash,
-                    "Topic:",
-                    log.topics[0]
+                    `Failed to parse event ${log.address}, Tx Hash: ${log.transactionHash}, Topic: ${log.topics[0]}`
                   );
 
                   return [];
@@ -369,14 +345,17 @@ export class Indexer<T extends Storage> {
           // handle thunk
           if (typeof ret === "function") {
             ret().catch((e) => {
-              this.log(Log.Error, "Failed to apply event", event);
-              this.log(Log.Error, e);
+              this.log(
+                Log.Error,
+                `Failed to apply event ${JSON.stringify(event)}`
+              );
+              this.log(Log.Error, e.toString());
               this.log(Log.Error, "Exiting...");
               process.exit(1);
             });
           }
         } catch (e) {
-          this.log(Log.Error, "Failed to apply event", event);
+          this.log(Log.Error, `Failed to apply event ${JSON.stringify(event)}`);
           throw e;
         }
 
@@ -389,7 +368,7 @@ export class Indexer<T extends Storage> {
       }
 
       if (appliedEventCount > 0) {
-        this.log(Log.Debug, "Applied", appliedEventCount, "events");
+        this.log(Log.Debug, `Applied ${appliedEventCount} events`);
       }
 
       for (const subscription of outdatedSubscriptions) {
@@ -432,7 +411,10 @@ export class Indexer<T extends Storage> {
 
     fromBlock = Math.max(this.currentIndexedBlock + 1, fromBlock);
 
-    this.log(Log.Info, "Subscribed", contract.address, "from block", fromBlock);
+    this.log(
+      Log.Info,
+      `Subscribed ${contract.address} from block ${fromBlock}`
+    );
 
     this.subscriptions.push({
       address: address,
@@ -547,12 +529,9 @@ export class Indexer<T extends Storage> {
     } catch (e) {
       this.log(
         Log.Debug,
-        "Failed range:",
-        fromBlock,
-        "to",
-        toBlock,
-        "retrying smaller range ...",
-        e
+        `Failed range: ${fromBlock} to ${toBlock}, retrying smaller range... (error: ${String(
+          e
+        )})`
       );
 
       if (depth === this.options.getLogsMaxRetries) {
