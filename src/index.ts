@@ -428,8 +428,6 @@ export class Indexer<T extends Storage> {
       fromBlock: fromBlock,
     });
 
-    this.update();
-
     return contract;
   }
 
