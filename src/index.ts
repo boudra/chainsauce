@@ -157,6 +157,15 @@ export class Indexer<T extends Storage> {
     }
   }
 
+  async updateOnce(): Promise<void> {
+    if (this.pollTimeoutId !== null) {
+      throw new Error(
+        "Already running periodic updates, refusing to run potentially overlapping manual update."
+      );
+    }
+    await this._update();
+  }
+
   private async poll() {
     await this._update();
     this.pollTimeoutId = setTimeout(
