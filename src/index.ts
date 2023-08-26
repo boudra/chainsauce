@@ -57,6 +57,7 @@ export interface Storage {
 
 export enum Log {
   None = 0,
+  Trace,
   Debug,
   Info,
   Warning,
@@ -181,6 +182,8 @@ export class Indexer<T extends Storage> {
         logger.error(msg);
       } else if (level === Log.Debug) {
         logger.debug(msg);
+      } else if (level === Log.Trace) {
+        logger.trace(msg);
       } else {
         logger.info(msg);
       }
@@ -191,6 +194,8 @@ export class Indexer<T extends Storage> {
         console.error(`[${this.chainName}][error]`, msg);
       } else if (level === Log.Debug) {
         console.debug(`[${this.chainName}][debug]`, msg);
+      } else if (level === Log.Trace) {
+        console.debug(`[${this.chainName}][trace]`, msg);
       } else {
         console.log(`[${this.chainName}][info]`, msg);
       }
@@ -368,7 +373,7 @@ export class Indexer<T extends Storage> {
       }
 
       if (appliedEventCount > 0) {
-        this.log(Log.Debug, `Applied ${appliedEventCount} events`);
+        this.log(Log.Trace, `Applied ${appliedEventCount} events`);
       }
 
       for (const subscription of outdatedSubscriptions) {
@@ -412,7 +417,7 @@ export class Indexer<T extends Storage> {
     fromBlock = Math.max(this.currentIndexedBlock + 1, fromBlock);
 
     this.log(
-      Log.Info,
+      Log.Trace,
       `Subscribed ${contract.address} from block ${fromBlock}`
     );
 
