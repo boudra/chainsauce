@@ -74,7 +74,11 @@ export type Options = {
   toBlock: ToBlock;
   logLevel?: Log;
   logger?: Logger;
-  onProgress?: (info: { currentBlock: number; lastBlock: number }) => void;
+  onProgress?: (info: {
+    currentBlock: number;
+    lastBlock: number;
+    pendingEventsCount: number;
+  }) => void;
   requireExplicitStart?: boolean;
 };
 
@@ -209,11 +213,6 @@ export class Indexer<T extends Storage> {
       this.lastBlock = this.options.toBlock;
     }
 
-    this.options.onProgress?.({
-      currentBlock: this.currentIndexedBlock,
-      lastBlock: this.lastBlock,
-    });
-
     let pendingEvents: Event[] = [];
 
     // eslint-disable-next-line no-constant-condition
@@ -338,6 +337,12 @@ export class Indexer<T extends Storage> {
         return a.blockNumber - b.blockNumber || a.logIndex - b.logIndex;
       });
 
+      this.options.onProgress?.({
+        currentBlock: this.currentIndexedBlock,
+        lastBlock: this.lastBlock,
+        pendingEventsCount: pendingEvents.length,
+      });
+
       let appliedEventCount = 0;
 
       while (pendingEvents.length > 0) {
@@ -371,14 +376,7 @@ export class Indexer<T extends Storage> {
       this.writeToStorage();
     }
 
-    // leave this to the caller via onProgress
-    // this.log(Log.Info, "Indexed up to", this.lastBlock);
     this.currentIndexedBlock = this.lastBlock;
-
-    this.options.onProgress?.({
-      currentBlock: this.currentIndexedBlock,
-      lastBlock: this.lastBlock,
-    });
 
     this.storage.setSubscriptions(this.subscriptions);
 
