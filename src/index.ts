@@ -277,7 +277,7 @@ export class Indexer<T extends Storage> {
 
               if (eventLogs.length > 0) {
                 this.log(
-                  Log.Debug,
+                  Log.Trace,
                   `Fetched events (${eventLogs.length}) Range: ${from} to ${to}`
                 );
               }
