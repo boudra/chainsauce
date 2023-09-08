@@ -345,20 +345,7 @@ export class Indexer<T extends Storage> {
         const event = pendingEvents.shift()!;
 
         try {
-          const ret = await this.eventHandler(this, event);
-
-          // handle thunk
-          if (typeof ret === "function") {
-            ret().catch((e) => {
-              this.log(
-                Log.Error,
-                `Failed to apply event ${JSON.stringify(event)}`
-              );
-              this.log(Log.Error, e.toString());
-              this.log(Log.Error, "Exiting...");
-              process.exit(1);
-            });
-          }
+          await this.eventHandler(this, event);
         } catch (e) {
           this.log(Log.Error, `Failed to apply event ${JSON.stringify(event)}`);
           throw e;
