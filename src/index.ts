@@ -229,7 +229,7 @@ export class Indexer<T extends Storage> {
 
       if (outdatedSubscriptions.length > 0) {
         this.log(
-          Log.Debug,
+          Log.Trace,
           `Fetching events for ${outdatedSubscriptions.length} subscriptions to block ${this.lastBlock}`
         );
       }
