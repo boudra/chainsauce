@@ -380,6 +380,12 @@ export class Indexer<T extends Storage> {
 
     this.storage.setSubscriptions(this.subscriptions);
 
+    this.options.onProgress?.({
+      currentBlock: this.currentIndexedBlock,
+      lastBlock: this.lastBlock,
+      pendingEventsCount: pendingEvents.length,
+    });
+
     // XXX shouldn't this be this.currentIndexedBlochk === this.options.toBlock ?
     if (this.lastBlock === this.options.toBlock) {
       this.stop();
