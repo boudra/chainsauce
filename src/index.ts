@@ -3,7 +3,9 @@ import { Logger } from "pino";
 
 import Cache from "./cache.js";
 import debounce from "./debounce.js";
-import fetch from "node-fetch";
+import fetch from "make-fetch-happen";
+import fetchRetry from "fetch-retry";
+
 import { RetryProvider } from "./retryProvider.js";
 
 export { RetryProvider } from "./retryProvider.js";
@@ -468,71 +470,73 @@ export class Indexer<T extends Storage> {
     address: string[],
     depth = 0
   ): Promise<RawEvent[]> {
-    try {
-      // We don't use the Provider to get logs because it's
-      // too slow for calls that return thousands of events
-      const url = this.provider.connection.url;
+    // We don't use the Provider to get logs because it's
+    // too slow for calls that return thousands of events
+    const url = this.provider.connection.url;
 
-      const body = {
-        jsonrpc: "2.0",
-        id: "1",
-        method: "eth_getLogs",
-        params: [
-          {
-            fromBlock: ethers.utils.hexValue(fromBlock),
-            toBlock: ethers.utils.hexValue(toBlock),
-            address: address,
-          },
-        ],
-      };
-
-      const response = await fetch(url, {
-        headers: {
-          "content-type": "application/json",
+    const body = {
+      jsonrpc: "2.0",
+      id: "1",
+      method: "eth_getLogs",
+      params: [
+        {
+          fromBlock: ethers.utils.hexValue(fromBlock),
+          toBlock: ethers.utils.hexValue(toBlock),
+          address: address,
         },
-        method: "POST",
-        body: JSON.stringify(body),
-      });
+      ],
+    };
 
-      const responseBody = (await response.json()) as {
-        error?: { code: number; message: string };
-        result?: RawEvent[];
-      };
+    const fetchWithRetry = fetchRetry(fetch as unknown as typeof global.fetch);
 
-      if (responseBody.error) {
-        // back off if we get rate limited
-        if (
-          responseBody.error?.code == 429 &&
-          depth < this.options.getLogsMaxRetries
-        ) {
-          await new Promise((r) => setTimeout(r, (depth + 1) * 1000));
+    const response = await fetchWithRetry(url, {
+      headers: {
+        "content-type": "application/json",
+      },
+      method: "POST",
+      retries: this.options.getLogsMaxRetries,
+      retryOn: (attempt, error, response) => {
+        // retry on any network error, or 4xx or 5xx status codes
+        if (error !== null || response === null || response.status >= 400) {
+          this.log(
+            Log.Debug,
+            `Failed range: ${fromBlock} to ${toBlock}, retrying... (attempt: ${String(
+              attempt
+            )} error: ${String(error)})`
+          );
+          return true;
         }
 
+        return false;
+      },
+      retryDelay: (attempt, _error, _response) => {
+        return Math.pow(2, attempt) * 1000;
+      },
+      body: JSON.stringify(body),
+    });
+
+    const responseBody = (await response.json()) as {
+      error?: { code: number; message: string };
+      result?: RawEvent[];
+    };
+
+    if (responseBody.error) {
+      const serializedError = JSON.stringify(responseBody.error);
+
+      if (depth === this.options.getLogsMaxRetries) {
         throw new Error(
-          `eth_getLogs failed, code: ${responseBody.error.code}, message: ${responseBody.error.message}`
+          `eth_getLogs failed, max retries reached (depth: ${String(
+            depth
+          )}, error: ${serializedError})`
         );
       }
 
-      if (responseBody.result) {
-        return responseBody.result;
-      }
-
-      throw new Error(
-        `eth_getLogs failed, unexpected response: ${JSON.stringify(
-          responseBody
-        )}`
-      );
-    } catch (e) {
       this.log(
         Log.Debug,
-        `Failed range: ${fromBlock} to ${toBlock}, retrying smaller range... (error: ${String(
-          e
-        )})`
+        `eth_getLogs failed: ${fromBlock} to ${toBlock}, retrying smaller range... (depth: ${String(
+          depth
+        )}, error: ${serializedError})`
       );
-
-      if (depth === this.options.getLogsMaxRetries) {
-        throw e;
-      }
 
       const chunks = [];
       const step = Math.ceil((toBlock - fromBlock) / Math.min(depth, 2));
@@ -549,6 +553,17 @@ export class Indexer<T extends Storage> {
         )
       ).flat();
     }
+
+    if (responseBody.result) {
+      return responseBody.result;
+    }
+
+    // error is null, but result is also null
+    throw new Error(
+      `eth_getLogs failed, no error or result returned, depth: ${String(
+        depth
+      )}, response: ${JSON.stringify(responseBody).slice(0, 100)}...`
+    );
   }
 }
 
