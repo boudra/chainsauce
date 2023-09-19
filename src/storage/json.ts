@@ -7,31 +7,45 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import debounce from "../debounce.js";
 
-type Document = { [key: string]: any };
+type Document = { id: string; [key: string]: any };
+type Index = { [key: string]: number };
+
+function buildIndex<T extends Document>(data: T[]): { [key: string]: number } {
+  const index: { [key: string]: number } = {};
+
+  for (let i = 0; i < data.length; i++) {
+    index[data[i].id] = i;
+  }
+
+  return index;
+}
 
 class Collection<T extends Document> {
   private filename: string;
   private data: T[] | null = null;
+  private index: Index | null = null;
   private save: ReturnType<typeof debounce>;
 
   constructor(filename: string) {
     this.filename = filename;
-    this.save = debounce(() => this._save(), 500);
+    this.save = debounce(() => this._save(), 1000);
     mkdirSync(path.dirname(filename), { recursive: true });
   }
 
-  private load(): T[] {
+  private load(): { data: T[]; index: Index } {
     try {
-      if (this.data !== null) {
-        return this.data;
+      if (this.data !== null && this.index !== null) {
+        return { data: this.data, index: this.index };
       }
 
       this.data = JSON.parse(fs.readFileSync(this.filename).toString()) as T[];
+      this.index = buildIndex(this.data);
     } catch {
       this.data = [];
+      this.index = {};
     }
 
-    return this.data;
+    return { data: this.data, index: this.index };
   }
 
   private _save() {
@@ -39,8 +53,12 @@ class Collection<T extends Document> {
       throw new Error("Saving without loading first!");
     }
 
+    // console.log(`Saving ${this.filename} with n records: ${this.data.length}`);
+
     const rt = fs.writeFileSync(this.filename, JSON.stringify(this.data));
-    this.data == null;
+    this.data = null;
+    this.index = null;
+
     return rt;
   }
 
@@ -49,9 +67,10 @@ class Collection<T extends Document> {
       throw new Error("T must be an object");
     }
 
-    this.load();
+    const { data, index } = this.load();
 
-    this.data!.push(document);
+    data.push(document);
+    index[document.id] = data.length - 1;
 
     this.save();
 
@@ -59,83 +78,49 @@ class Collection<T extends Document> {
   }
 
   findById(id: any): Promise<T | undefined> {
-    const data = this.load();
-    return Promise.resolve(data.find((doc: T) => doc.id === id));
+    const { data, index } = this.load();
+    return Promise.resolve(data[index[id]]);
   }
 
   updateById(id: string, fun: (doc: T) => T): Promise<T | undefined> {
-    this.load();
+    const { data, index } = this.load();
 
-    const index = this.data!.findIndex((doc: T) => doc.id === id);
-
-    if (index < 0) {
+    if (index[id] === undefined) {
       return Promise.resolve(undefined);
     }
 
-    this.data![index] = fun(this.data![index]);
-
-    const item = this.data![index];
+    data[index[id]] = fun(data[index[id]]);
 
     this.save();
 
-    return Promise.resolve(item);
+    return Promise.resolve(data[index[id]]);
   }
 
   // returns true it inserted a new record
   upsertById(id: string, fun: (doc: T | undefined) => T): Promise<boolean> {
-    this.load();
+    const { data, index } = this.load();
 
-    const index = this.data!.findIndex((doc: T) => doc.id === id);
+    const isNewRecord = index[id] === undefined;
 
-    if (index < 0) {
-      this.data!.push(fun(undefined));
+    if (isNewRecord) {
+      this.insert(fun(undefined));
     } else {
-      this.data![index] = fun(this.data![index]);
+      data[index[id]] = fun(data[index[id]]);
     }
 
     this.save();
 
-    return Promise.resolve(index < 0);
-  }
-
-  updateOneWhere(
-    filter: (doc: T) => boolean,
-    fun: (doc: T) => T
-  ): Promise<T | undefined> {
-    this.load();
-
-    const index = this.data!.findIndex(filter);
-
-    if (index < 0) {
-      return Promise.resolve(undefined);
-    }
-
-    this.data![index] = fun(this.data![index]);
-
-    const item = this.data![index];
-
-    this.save();
-
-    return Promise.resolve(item);
-  }
-
-  async findWhere(filter: (doc: T) => boolean): Promise<T[]> {
-    this.load();
-    return this.data!.filter(filter);
-  }
-
-  async findOneWhere(filter: (doc: T) => boolean): Promise<T | undefined> {
-    this.load();
-    return this.data!.find(filter);
+    return Promise.resolve(isNewRecord);
   }
 
   async all(): Promise<T[]> {
-    this.load();
-    return this.data!;
+    const { data } = this.load();
+    return data;
   }
 
   async replaceAll(data: T[]): Promise<T[]> {
     this.data = data;
+    this.index = buildIndex(data);
     this.save();
     return this.data;
   }
@@ -166,14 +151,14 @@ export default class JsonStorage implements Storage {
 
   async getSubscriptions(): Promise<Subscription[]> {
     const subs = await this.collection<{
-      address: string;
+      id: string;
       abi: string;
       fromBlock: number;
     }>("_subscriptions").all();
 
     return subs.map((sub) => ({
-      address: sub.address,
-      contract: new ethers.Contract(sub.address, sub.abi),
+      address: sub.id,
+      contract: new ethers.Contract(sub.id, sub.abi),
       fromBlock: sub.fromBlock,
     }));
   }
@@ -181,7 +166,7 @@ export default class JsonStorage implements Storage {
   async setSubscriptions(subscriptions: Subscription[]): Promise<void> {
     this.collection("_subscriptions").replaceAll(
       subscriptions.map((sub) => ({
-        address: sub.address,
+        id: sub.address,
         abi: JSON.parse(
           sub.contract.interface.format(ethers.utils.FormatTypes.json) as string
         ),
