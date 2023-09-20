@@ -28,7 +28,7 @@ class Collection<T extends Document> {
 
   constructor(filename: string) {
     this.filename = filename;
-    this.save = debounce(() => this._save(), 1000);
+    this.save = debounce(() => this._save(), 500);
     mkdirSync(path.dirname(filename), { recursive: true });
   }
 
@@ -52,8 +52,6 @@ class Collection<T extends Document> {
     if (this.data === null) {
       throw new Error("Saving without loading first!");
     }
-
-    // console.log(`Saving ${this.filename} with n records: ${this.data.length}`);
 
     const rt = fs.writeFileSync(this.filename, JSON.stringify(this.data));
     this.data = null;
