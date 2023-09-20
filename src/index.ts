@@ -487,6 +487,8 @@ export class Indexer<T extends Storage> {
       ],
     };
 
+    // make-fetch-happen doesn't exactly match the types of the fetch API,
+    // but it's compatible
     const fetchWithRetry = fetchRetry(fetch as unknown as typeof global.fetch);
 
     const response = await fetchWithRetry(url, {
