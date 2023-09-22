@@ -1,7 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { mkdirSync } from "node:fs";
 
 export default class Cache {
   private dir: string;
@@ -12,10 +11,6 @@ export default class Cache {
     this.dir = dir;
     this.loading = {};
     this.isDisabled = isDisabled;
-
-    if (!this.isDisabled) {
-      mkdirSync(this.dir, { recursive: true });
-    }
   }
 
   private key(key: string) {
@@ -48,6 +43,7 @@ export default class Cache {
     const filename = this.filename(key);
 
     try {
+      await fs.mkdir(this.dir, { recursive: true });
       await fs.writeFile(filename, JSON.stringify(value));
     } catch {
       return undefined;

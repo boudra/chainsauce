@@ -2,8 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { Storage, Subscription } from "../index";
 import { ethers } from "ethers";
-import fs from "node:fs";
-import { mkdirSync } from "node:fs";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import debounce from "../debounce.js";
 
@@ -24,21 +23,24 @@ class Collection<T extends Document> {
   private filename: string;
   private data: T[] | null = null;
   private index: Index | null = null;
-  private save: ReturnType<typeof debounce>;
+
+  public save: () => void;
 
   constructor(filename: string) {
     this.filename = filename;
-    this.save = debounce(() => this._save(), 500);
-    mkdirSync(path.dirname(filename), { recursive: true });
+    this.save = this._save;
+    this.save = debounce(() => {
+      this._save();
+    }, 100);
   }
 
-  private load(): { data: T[]; index: Index } {
+  private async load(): Promise<{ data: T[]; index: Index }> {
     try {
       if (this.data !== null && this.index !== null) {
         return { data: this.data, index: this.index };
       }
 
-      this.data = JSON.parse(fs.readFileSync(this.filename).toString()) as T[];
+      this.data = JSON.parse(await readFile(this.filename, "utf8")) as T[];
       this.index = buildIndex(this.data);
     } catch {
       this.data = [];
@@ -48,24 +50,30 @@ class Collection<T extends Document> {
     return { data: this.data, index: this.index };
   }
 
-  private _save() {
+  private async _save() {
     if (this.data === null) {
       throw new Error("Saving without loading first!");
     }
 
-    const rt = fs.writeFileSync(this.filename, JSON.stringify(this.data));
+    await mkdir(path.dirname(this.filename), { recursive: true });
+
+    const rt = await writeFile(
+      this.filename,
+      JSON.stringify(this.data),
+      "utf8"
+    );
     this.data = null;
     this.index = null;
 
     return rt;
   }
 
-  insert(document: T): Promise<T> {
+  async insert(document: T): Promise<T> {
     if (typeof document !== "object") {
       throw new Error("T must be an object");
     }
 
-    const { data, index } = this.load();
+    const { data, index } = await this.load();
 
     data.push(document);
     index[document.id] = data.length - 1;
@@ -75,13 +83,13 @@ class Collection<T extends Document> {
     return Promise.resolve(document);
   }
 
-  findById(id: any): Promise<T | undefined> {
-    const { data, index } = this.load();
+  async findById(id: any): Promise<T | undefined> {
+    const { data, index } = await this.load();
     return Promise.resolve(data[index[id]]);
   }
 
-  updateById(id: string, fun: (doc: T) => T): Promise<T | undefined> {
-    const { data, index } = this.load();
+  async updateById(id: string, fun: (doc: T) => T): Promise<T | undefined> {
+    const { data, index } = await this.load();
 
     if (index[id] === undefined) {
       return Promise.resolve(undefined);
@@ -95,8 +103,11 @@ class Collection<T extends Document> {
   }
 
   // returns true it inserted a new record
-  upsertById(id: string, fun: (doc: T | undefined) => T): Promise<boolean> {
-    const { data, index } = this.load();
+  async upsertById(
+    id: string,
+    fun: (doc: T | undefined) => T
+  ): Promise<boolean> {
+    const { data, index } = await this.load();
 
     const isNewRecord = index[id] === undefined;
 
@@ -112,7 +123,7 @@ class Collection<T extends Document> {
   }
 
   async all(): Promise<T[]> {
-    const { data } = this.load();
+    const { data } = await this.load();
     return data;
   }
 
@@ -134,7 +145,7 @@ export default class JsonStorage implements Storage {
   }
 
   async init() {
-    fs.mkdirSync(this.dir, { recursive: true });
+    await mkdir(this.dir, { recursive: true });
   }
 
   collection<T extends Document>(key: string) {
