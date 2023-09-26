@@ -12,7 +12,6 @@ import { EventStore } from "@/eventStore";
 import { SubscriptionStore } from "@/subscriptionStore";
 import { Logger, LoggerBackend, LogLevel } from "@/logger";
 import { Hex, ToBlock, EventHandlers, BaseEvent, Event } from "@/types";
-import { Database } from "@/storage";
 
 export { Hex, ToBlock, Event, LoggerBackend, LogLevel, Log };
 

@@ -125,10 +125,12 @@ export function createRpcClient(
               },
             ]);
           } catch (e) {
-            // handle range too wide errors
+            // there's no standard error code for this, so we have to check the message,
+            // different providers have different error messages
             if (
               e instanceof JsonRpcError &&
-              e.error?.message?.includes("query returned more than")
+              (e.error?.message?.includes("query returned more than") ||
+                e.error?.message?.includes("Log response size exceeded"))
             ) {
               throw new JsonRpcRangeTooWideError(e);
             } else {
