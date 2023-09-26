@@ -1,572 +1,588 @@
-import { ethers } from "ethers";
+import { Abi, AbiEvent, ExtractAbiEventNames } from "abitype";
+import { decodeEventLog, encodeEventTopics, fromHex, getAbiItem } from "viem";
+import { v4 as uuidv4 } from "uuid";
 
-import Cache from "./cache.js";
-import debounce from "./debounce.js";
-import fetch from "node-fetch";
-import { RetryProvider } from "./retryProvider.js";
+import {
+  createRpcClient,
+  RpcClient,
+  JsonRpcRangeTooWideError,
+  Log,
+} from "@/rpc";
+import { EventStore } from "@/eventStore";
+import { SubscriptionStore } from "@/subscriptionStore";
+import { Logger, LoggerBackend, LogLevel } from "@/logger";
+import { Hex, ToBlock, EventHandlers, BaseEvent, Event } from "@/types";
+import { Database } from "@/storage";
 
-export { RetryProvider } from "./retryProvider.js";
+export { Hex, ToBlock, Event, LoggerBackend, LogLevel, Log };
 
-export { default as JsonStorage } from "./storage/json.js";
-export { default as SqliteStorage } from "./storage/sqlite.js";
-
-export { Cache };
-
-export type RawEvent = {
-  address: string;
-  blockHash: string;
-  blockNumber: string;
-  data: string;
-  logIndex: string;
-  topics: string[];
-  transactionHash: string;
-  transactionIndex: string;
+type Subscription = {
+  id: string;
+  abi: Abi;
+  contractName: string;
+  contractAddress: `0x${string}`;
+  topic: `0x${string}`;
+  eventName: string;
+  eventHandler: (event: BaseEvent) => Promise<void>;
+  eventAbi: AbiEvent;
+  toBlock: ToBlock;
+  fetchedToBlock: bigint;
+  indexedToBlock: bigint;
+  indexedToLogIndex: number;
 };
 
-export type Event = {
+export type Contract<T extends Abi, N extends ExtractAbiEventNames<T>> = {
   name: string;
-  signature: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  args: { [key: string]: any };
-  address: string;
-  transactionHash: string;
-  blockNumber: number;
-  logIndex: number;
+  abi: T;
+  address?: `0x${string}`;
+  handlers: EventHandlers<T, N>;
+  fromBlock?: bigint;
+  toBlock?: ToBlock;
 };
 
-export type EventHandler<T extends Storage> = (
-  indexer: Indexer<T>,
-  event: Event
-) => Promise<void | (() => Promise<void>)>;
-
-export type Subscription = {
-  address: string;
-  contract: ethers.Contract;
-  fromBlock: number;
+export type CreateSubscriptionOptions = {
+  id?: string;
+  name: string;
+  address: Hex;
+  fromBlock?: bigint;
+  fromLogIndex?: number;
+  toBlock?: ToBlock;
 };
 
-export interface Storage {
-  getSubscriptions(): Promise<Subscription[]>;
-  setSubscriptions(subscriptions: Subscription[]): Promise<void>;
-
-  init?(): Promise<void>;
-  write?(): Promise<void>;
-  read?(): Promise<void>;
+export function contract<
+  T extends Abi,
+  N extends ExtractAbiEventNames<T>
+>(options: {
+  name: string;
+  abi: T;
+  address?: `0x${string}`;
+  fromBlock?: bigint;
+  toBlock?: ToBlock;
+  handlers: EventHandlers<T, N>;
+}): Contract<T, N> {
+  return options;
 }
-
-export enum Log {
-  None = 0,
-  Debug,
-  Info,
-  Warning,
-  Error,
-}
-
-export type ToBlock = "latest" | number;
 
 export type Options = {
-  pollingInterval: number;
-  logLevel: Log;
-  getLogsMaxRetries: number;
-  getLogsContractChunkSize: number;
-  eventCacheDirectory: string | null;
-  toBlock: ToBlock;
-  runOnce: boolean;
+  logLevel?: keyof typeof LogLevel;
+  Logger?: LoggerBackend;
+  eventPollIntervalMs?: number;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  contracts: Contract<any, any>[];
+  rpc: RpcClient | { url: string; fetch?: typeof globalThis.fetch };
+  onEvent?: (event: BaseEvent) => Promise<void>;
+  onUpdate?: (block: bigint) => void;
+  onProgress?: (progress: {
+    currentBlock: bigint;
+    lastBlock: bigint;
+    pendingEventsCount: number;
+  }) => void;
+  eventStore?: EventStore;
+  subscriptionStore?: SubscriptionStore;
 };
 
-export const defaultOptions: Options = {
-  pollingInterval: 20 * 1000,
-  logLevel: Log.Info,
-  getLogsMaxRetries: 20,
-  getLogsContractChunkSize: 25,
-  eventCacheDirectory: "./.cache",
-  toBlock: "latest",
-  runOnce: false,
+export interface Indexer {
+  subscribeToContract(options: CreateSubscriptionOptions): void;
+  indexToBlock(toBlock: ToBlock): Promise<void>;
+  start(): Promise<void>;
+  stop(): Promise<void>;
+}
+
+type StoppedIndexerState = {
+  type: "stopped";
 };
 
-export class Indexer<T extends Storage> {
-  subscriptions: Subscription[];
-  chainId: number;
-  chainName: string;
-  provider: Provider;
-  eventHandler: EventHandler<T>;
-  update: () => void;
-  writeToStorage: () => void;
-  storage: T;
+type RunningIndexerState = {
+  type: "running";
+  pollTimeout: NodeJS.Timeout;
+  targetBlock: ToBlock;
+  onError: (error: unknown) => void;
+  onFinish: () => void;
+};
 
-  lastBlock = 0;
-  currentIndexedBlock = 0;
-  isUpdating = false;
-  options: Options;
-  cache: Cache;
-  pollingTimer: ReturnType<typeof setInterval>;
+type IndexerState = RunningIndexerState | StoppedIndexerState;
 
-  constructor(
-    provider: Provider,
-    network: ethers.providers.Network,
-    subscriptions: Subscription[],
-    persistence: T,
-    handleEvent: EventHandler<T>,
-    options: Partial<Options>
-  ) {
-    this.chainId = network.chainId;
-    this.chainName = network.name;
-    this.provider = provider;
-    this.eventHandler = handleEvent;
-    this.subscriptions = subscriptions;
-    this.storage = persistence;
-    this.options = Object.assign(defaultOptions, options);
+export async function createIndexer(options: Options): Promise<Indexer> {
+  const eventPollIntervalMs = options.eventPollIntervalMs ?? 1000;
+  const logLevel: LogLevel = LogLevel[options.logLevel ?? "warn"];
 
-    if (this.options.eventCacheDirectory) {
-      this.cache = new Cache(this.options.eventCacheDirectory);
-    } else {
-      this.cache = new Cache("", true);
-    }
-
-    this.update = debounce(() => this._update(), 500);
-    this.writeToStorage = debounce(() => {
-      if (this.storage.write) {
-        this.storage.write();
-      }
-    }, 500);
-
-    if (this.subscriptions.length > 0) {
-      this.update();
-    }
-
-    this.pollingTimer = setInterval(
-      () => this._update(),
-      this.options.pollingInterval
-    );
-
-    this.log(
-      Log.Info,
-      "Initialized indexer with",
-      subscriptions.length,
-      "contract subscriptions"
-    );
+  if (logLevel === undefined) {
+    throw new Error(`Invalid log level: ${options.logLevel}`);
   }
 
-  private log(level: Log, ...data: unknown[]) {
-    if (level < this.options.logLevel) {
+  const loggerBackend =
+    options.Logger ??
+    ((level, ...data: unknown[]) => {
+      console.log(`[${LogLevel[level]}]`, ...data);
+    });
+
+  const logger = new Logger(logLevel, loggerBackend);
+  const eventStore = options.eventStore ?? null;
+  let getLastBlockNumber: RpcClient["getLastBlockNumber"];
+  let getLogs: RpcClient["getLogs"];
+
+  if ("rpc" in options && "url" in options.rpc) {
+    const fetch = options.rpc.fetch ?? globalThis.fetch;
+    const client = createRpcClient(logger, options.rpc.url, fetch);
+    getLastBlockNumber = () => client.getLastBlockNumber();
+    getLogs = (opts) => client.getLogs(opts);
+  } else if ("rpc" in options && "getLastBlockNumber" in options.rpc) {
+    getLastBlockNumber = options.rpc.getLastBlockNumber;
+    getLogs = options.rpc.getLogs;
+  } else {
+    throw new Error("Invalid RPC options");
+  }
+
+  let state: IndexerState = {
+    type: "stopped",
+  };
+
+  const contracts = options.contracts;
+  const subscriptions: Subscription[] = [];
+  const eventQueue: BaseEvent[] = [];
+
+  if (options.subscriptionStore) {
+    const storedSubscriptions = await options.subscriptionStore.all();
+
+    for (const subscription of storedSubscriptions) {
+      subscribeToContract({
+        id: subscription.id,
+        name: subscription.contractName,
+        address: subscription.contractAddress,
+        fromBlock: subscription.indexedToBlock,
+        fromLogIndex: subscription.indexedToLogIndex,
+        toBlock: subscription.toBlock,
+      });
+    }
+
+    logger.info("Loaded", subscriptions.length, "subscriptions from store");
+  }
+
+  // add initial subscriptions only if none were loaded from storage
+  if (subscriptions.length === 0) {
+    for (const contract of contracts) {
+      // contract is bound to an address, subscribe to it
+      if (contract.address) {
+        subscribeToContract({
+          name: contract.name,
+          address: contract.address,
+          fromBlock: contract.fromBlock,
+          toBlock: contract.toBlock,
+        });
+      }
+    }
+  }
+
+  async function poll() {
+    if (state.type !== "running") {
       return;
     }
 
-    if (level === Log.Warning) {
-      console.warn(`[${this.chainName}][warn]`, ...data);
-    } else if (level === Log.Error) {
-      console.error(`[${this.chainName}][error]`, ...data);
-    } else if (level === Log.Debug) {
-      console.debug(`[${this.chainName}][debug]`, ...data);
-    } else {
-      console.log(`[${this.chainName}][info]`, ...data);
+    function schedule() {
+      if (state.type === "running") {
+        state.pollTimeout = setTimeout(poll, eventPollIntervalMs);
+      }
     }
-  }
-
-  private async _update() {
-    if (this.isUpdating) return;
-
-    this.isUpdating = true;
 
     try {
-      if (this.options.toBlock === "latest") {
-        this.lastBlock = await this.provider.getBlockNumber();
-      } else {
-        this.lastBlock = this.options.toBlock;
+      let lastBlock = await getLastBlockNumber();
+      const subscriptionCount = subscriptions.length;
+
+      // do not index beyond the target block
+      if (state.targetBlock !== "latest" && lastBlock > state.targetBlock) {
+        lastBlock = state.targetBlock;
       }
 
-      let pendingEvents: Event[] = [];
-
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const subscriptionCount = this.subscriptions.length;
-        const outdatedSubscriptions = this.subscriptions.filter((sub) => {
-          return sub.fromBlock <= this.lastBlock;
-        });
-
-        if (outdatedSubscriptions.length === 0 && pendingEvents.length === 0) {
-          break;
-        }
-
-        if (outdatedSubscriptions.length > 0) {
-          this.log(
-            Log.Debug,
-            "Fetching events for",
-            outdatedSubscriptions.length,
-            "subscriptions",
-            "to block",
-            this.lastBlock
-          );
-        }
-
-        const subscriptionBatches = outdatedSubscriptions.reduce(
-          (acc: { [key: string]: Subscription[][] }, sub) => {
-            acc[sub.fromBlock] ||= [[]];
-
-            const last = acc[sub.fromBlock][acc[sub.fromBlock].length - 1];
-
-            if (last.length > this.options.getLogsContractChunkSize) {
-              acc[sub.fromBlock].push([sub]);
-            } else {
-              last.push(sub);
-            }
-            return acc;
-          },
-          {}
+      // only work with subscriptions that index to latest or beyond the last block,
+      // and that have not yet indexed to the last block
+      const activeSubscriptions = subscriptions.filter((sub) => {
+        return (
+          (sub.toBlock === "latest" || sub.toBlock >= lastBlock) &&
+          sub.indexedToBlock < lastBlock
         );
-
-        const eventBatches = Promise.all(
-          Object.entries(subscriptionBatches).flatMap(
-            ([fromBlock, subscriptionBatches]) => {
-              return subscriptionBatches.map(async (subscriptionBatch) => {
-                const addresses = subscriptionBatch.map((s) => s.address);
-
-                const eventContractIndex = Object.fromEntries(
-                  subscriptionBatch.flatMap(({ contract }) => {
-                    return Object.keys(contract.interface.events).map(
-                      (name) => {
-                        return [
-                          contract.interface.getEventTopic(name),
-                          {
-                            eventFragment: contract.interface.getEvent(name),
-                            contract,
-                          },
-                        ];
-                      }
-                    );
-                  })
-                );
-
-                const from = Number(fromBlock);
-                const to = this.lastBlock;
-
-                const eventLogs = await this.fetchLogs(from, to, addresses);
-
-                if (eventLogs.length > 0) {
-                  this.log(
-                    Log.Debug,
-                    "Fetched events (",
-                    eventLogs.length,
-                    ")",
-                    "Range:",
-                    from,
-                    "to",
-                    to
-                  );
-                }
-
-                const parsedEvents = eventLogs.flatMap((log: RawEvent) => {
-                  try {
-                    const fragmentContract = eventContractIndex[log.topics[0]];
-
-                    if (!fragmentContract) {
-                      this.log(
-                        Log.Warning,
-                        "Unrecognized event",
-                        "Address:",
-                        log.address,
-                        "TxHash:",
-                        log.transactionHash,
-                        "Topic:",
-                        log.topics[0]
-                      );
-
-                      return [];
-                    }
-
-                    const { eventFragment, contract } = fragmentContract;
-
-                    const args = contract.interface.decodeEventLog(
-                      eventFragment,
-                      log.data,
-                      log.topics
-                    );
-
-                    const event: Event = {
-                      name: eventFragment.name,
-                      args: args,
-                      address: ethers.utils.getAddress(log.address),
-                      signature: eventFragment.format(),
-                      transactionHash: log.transactionHash,
-                      blockNumber: parseInt(log.blockNumber, 16),
-                      logIndex: parseInt(log.logIndex, 16),
-                    };
-
-                    return [event];
-                  } catch (e) {
-                    this.log(
-                      Log.Error,
-                      "Failed to parse event",
-                      log.address,
-                      "Tx Hash:",
-                      log.transactionHash,
-                      "Topic:",
-                      log.topics[0]
-                    );
-
-                    return [];
-                  }
-                });
-
-                return parsedEvents;
-              });
-            }
-          )
-        );
-
-        const events = (await eventBatches).flat();
-
-        pendingEvents = pendingEvents.concat(events);
-
-        pendingEvents.sort((a, b) => {
-          return a.blockNumber - b.blockNumber || a.logIndex - b.logIndex;
-        });
-
-        let appliedEventCount = 0;
-
-        while (pendingEvents.length > 0) {
-          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-          const event = pendingEvents.shift()!;
-
-          try {
-            const ret = await this.eventHandler(this, event);
-
-            // handle thunk
-            if (typeof ret === "function") {
-              ret().catch((e) => {
-                this.log(Log.Error, "Failed to apply event", event);
-                this.log(Log.Error, e);
-                this.log(Log.Error, "Exiting...");
-                process.exit(1);
-              });
-            }
-          } catch (e) {
-            this.log(Log.Error, "Failed to apply event", event);
-            throw e;
-          }
-
-          appliedEventCount = appliedEventCount + 1;
-
-          // If a new subscription is added, stop playing events and catch up
-          if (this.subscriptions.length > subscriptionCount) {
-            break;
-          }
-        }
-
-        if (appliedEventCount > 0) {
-          this.log(Log.Debug, "Applied", appliedEventCount, "events");
-        }
-
-        for (const subscription of outdatedSubscriptions) {
-          subscription.fromBlock = this.lastBlock + 1;
-        }
-
-        this.storage.setSubscriptions(this.subscriptions);
-        this.writeToStorage();
-      }
-
-      this.log(Log.Info, "Indexed up to", this.lastBlock);
-      this.currentIndexedBlock = this.lastBlock + 1;
-
-      this.storage.setSubscriptions(this.subscriptions);
-
-      if (this.lastBlock === this.options.toBlock || this.options.runOnce) {
-        clearInterval(this.pollingTimer);
-      }
-    } finally {
-      this.isUpdating = false;
-    }
-  }
-
-  subscribe(
-    address: string,
-    abi: ethers.ContractInterface,
-    fromBlock = 0
-  ): ethers.Contract {
-    const existing = this.subscriptions.find((s) => s.address === address);
-
-    if (existing) {
-      return existing.contract;
-    }
-
-    const contract = new ethers.Contract(address, abi, this.provider);
-
-    fromBlock = Math.max(this.currentIndexedBlock, fromBlock);
-
-    this.log(Log.Info, "Subscribed", contract.address, "from block", fromBlock);
-
-    this.subscriptions.push({
-      address: address,
-      contract,
-      fromBlock: fromBlock,
-    });
-
-    this.update();
-
-    return contract;
-  }
-
-  private async fetchLogs(
-    fromBlock: number,
-    toBlock: number,
-    address: string[]
-  ): Promise<RawEvent[]> {
-    const cacheKey = `${
-      this.provider.network.chainId
-    }-${fromBlock}-${address.join("")}`;
-
-    const cached = await this.cache.get<{
-      toBlock: number;
-      events: RawEvent[];
-    }>(cacheKey);
-
-    if (cached) {
-      const { toBlock: cachedToBlock, events } = cached;
-
-      if (toBlock > cachedToBlock) {
-        const newEvents = await this._fetchLogs(
-          cachedToBlock + 1,
-          toBlock,
-          address
-        );
-
-        const allEvents = events.concat(newEvents);
-
-        this.cache.set(cacheKey, { toBlock, events: allEvents });
-
-        return allEvents;
-      }
-
-      return cached.events;
-    }
-
-    const events = await this._fetchLogs(fromBlock, toBlock, address);
-
-    this.cache.set(cacheKey, { toBlock, events });
-
-    return events;
-  }
-
-  private async _fetchLogs(
-    fromBlock: number,
-    toBlock: number,
-    address: string[],
-    depth = 0
-  ): Promise<RawEvent[]> {
-    try {
-      // We don't use the Provider to get logs because it's
-      // too slow for calls that return thousands of events
-      const url = this.provider.connection.url;
-
-      const body = {
-        jsonprc: "2.0",
-        id: "1",
-        method: "eth_getLogs",
-        params: [
-          {
-            fromBlock: ethers.utils.hexValue(fromBlock),
-            toBlock: ethers.utils.hexValue(toBlock),
-            address: address,
-          },
-        ],
-      };
-
-      const response = await fetch(url, {
-        headers: {
-          "content-type": "application/json",
-        },
-        method: "POST",
-        body: JSON.stringify(body),
       });
 
-      const responseBody = (await response.json()) as {
-        error?: { code: number; message: string };
-        result?: RawEvent[];
-      };
+      // contract address => event topic => index
+      const subscriptionMap = new Map<Hex, Map<Hex, number>>();
 
-      if (responseBody.error) {
-        // back off if we get rate limited
-        if (
-          responseBody.error?.code == 429 &&
-          depth < this.options.getLogsMaxRetries
-        ) {
-          await new Promise((r) => setTimeout(r, (depth + 1) * 1000));
+      for (let i = 0; i < activeSubscriptions.length; i++) {
+        const subscription = activeSubscriptions[i];
+
+        if (!subscriptionMap.has(subscription.contractAddress)) {
+          subscriptionMap.set(subscription.contractAddress, new Map());
         }
 
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        const eventMap = subscriptionMap.get(subscription.contractAddress)!;
+
+        if (!eventMap.has(subscription.topic)) {
+          eventMap.set(subscription.topic, i);
+        }
+      }
+
+      // fromBlock => toBlock => contract address => topics
+      const fetchRequests = new Map<bigint, Map<bigint, Map<Hex, Hex[]>>>();
+
+      // group subscriptions by fromBlock and toBlock to reduce the number of
+      // requests to the RPC endpoint
+      for (const subscription of activeSubscriptions) {
+        let toBlock = lastBlock;
+
+        if (subscription.toBlock !== "latest") {
+          toBlock = subscription.toBlock;
+        }
+
+        // continue fetching from the last fetched block
+        let fetchFromBlock = subscription.fetchedToBlock + 1n;
+
+        // fetch from the latest indexed block if we have indexed but not fetched
+        if (fetchFromBlock < subscription.indexedToBlock) {
+          fetchFromBlock = subscription.indexedToBlock + 1n;
+        }
+
+        if (eventStore) {
+          // fetch events from the event store
+          const storedEvents = await eventStore.getEvents({
+            address: subscription.contractAddress,
+            topic: subscription.topic,
+            fromBlock: fetchFromBlock,
+            toBlock: lastBlock,
+          });
+
+          for (const event of storedEvents) {
+            eventQueue.push(event);
+          }
+
+          // if there are stored events, fetch from the block after the last
+          // stored event
+          if (storedEvents.length > 0) {
+            fetchFromBlock =
+              storedEvents[storedEvents.length - 1].blockNumber + 1n;
+            subscription.fetchedToBlock = fetchFromBlock;
+          }
+        }
+
+        const fromMap = fetchRequests.get(fetchFromBlock) ?? new Map();
+        const toMap = fromMap.get(toBlock) ?? new Map();
+        const topics = toMap.get(subscription.contractAddress) ?? [];
+
+        topics.push(subscription.topic);
+        toMap.set(subscription.contractAddress, topics);
+        fromMap.set(toBlock, toMap);
+        fetchRequests.set(fetchFromBlock, fromMap);
+      }
+
+      for (const [startBlock, innerMap] of fetchRequests) {
+        for (const [toBlock, addressesTopics] of innerMap) {
+          let currentBlock = startBlock;
+
+          const addresses = Array.from(addressesTopics.keys());
+          const topics = Array.from(addressesTopics.values()).flat();
+
+          let steps = 1n;
+
+          while (currentBlock <= toBlock) {
+            try {
+              const toBlock = currentBlock + (lastBlock - currentBlock) / steps;
+
+              logger.trace("Fetching events", currentBlock, "to", toBlock);
+
+              const logs = await getLogs({
+                address: addresses,
+                fromBlock: currentBlock,
+                toBlock: toBlock,
+                topics: [topics],
+              });
+
+              logger.trace("Fetched new", logs.length, "events");
+
+              for (const log of logs) {
+                const subscriptionIndex = subscriptionMap
+                  .get(log.address)
+                  ?.get(log.topics[0]);
+
+                if (subscriptionIndex === undefined) {
+                  continue;
+                }
+
+                const subscription = activeSubscriptions[subscriptionIndex];
+
+                const parsedEvent = decodeEventLog({
+                  abi: subscription.abi,
+                  data: log.data,
+                  topics: log.topics,
+                });
+
+                if (
+                  log.transactionHash === null ||
+                  log.blockNumber === null ||
+                  log.logIndex === null
+                ) {
+                  throw new Error("Event is still pending");
+                }
+
+                const blockNumber = fromHex(log.blockNumber, "bigint");
+
+                const event: BaseEvent = {
+                  name: subscription.eventName,
+                  params: parsedEvent.args,
+                  address: log.address,
+                  topic: log.topics[0],
+                  transactionHash: log.transactionHash,
+                  blockNumber: blockNumber,
+                  logIndex: fromHex(log.logIndex, "number"),
+                };
+
+                if (eventStore) {
+                  await eventStore.insert(event);
+                }
+
+                eventQueue.push(event);
+
+                subscription.fetchedToBlock = blockNumber;
+              }
+
+              currentBlock = toBlock + 1n;
+
+              // range successfully fetched, fetch wider range
+              steps = steps / 2n;
+              if (steps < 1n) {
+                steps = 1n;
+              }
+            } catch (error) {
+              if (error instanceof JsonRpcRangeTooWideError) {
+                // range too wide, split in half and retry
+                steps = steps * 2n;
+                continue;
+              }
+
+              throw error;
+            }
+          }
+        }
+      }
+
+      // sort by block number and log index ascending
+      eventQueue.sort((a, b) => {
+        if (a.blockNumber < b.blockNumber) {
+          return -1;
+        }
+
+        if (a.blockNumber > b.blockNumber) {
+          return 1;
+        }
+
+        if (a.logIndex < b.logIndex) {
+          return -1;
+        }
+
+        if (a.logIndex > b.logIndex) {
+          return 1;
+        }
+
+        return 0;
+      });
+
+      if (eventQueue.length > 0) {
+        logger.trace("Applying", eventQueue.length, "events");
+      }
+
+      if (options.onProgress) {
+        const currentBlock = activeSubscriptions.reduce((acc, sub) => {
+          if (sub.indexedToBlock < acc) {
+            return sub.indexedToBlock;
+          }
+          return acc;
+        }, lastBlock);
+
+        options.onProgress({
+          currentBlock,
+          lastBlock: lastBlock,
+          pendingEventsCount: eventQueue.length,
+        });
+      }
+
+      while (eventQueue.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        const event = eventQueue.shift()!;
+
+        const index = subscriptionMap.get(event.address)?.get(event.topic);
+
+        // should not happen
+        if (index === undefined) {
+          throw new Error("Subscription not found");
+        }
+
+        const subscription = activeSubscriptions[index];
+
+        if (
+          event.blockNumber === subscription.indexedToBlock &&
+          event.logIndex < subscription.indexedToLogIndex
+        ) {
+          continue;
+        }
+
+        // should not happen
+        if (subscription === undefined) {
+          throw new Error("Subscription not found");
+        }
+
+        try {
+          await subscription.eventHandler(event);
+
+          if (options.onEvent) {
+            await options.onEvent(event);
+          }
+        } catch (err) {
+          logger.error("Error applying event", err);
+        }
+
+        subscription.indexedToBlock = event.blockNumber;
+        subscription.indexedToLogIndex = event.logIndex;
+
+        // new subscriptions were added while processing
+        if (subscriptions.length > subscriptionCount) {
+          schedule();
+        }
+      }
+
+      logger.trace("Indexed to block", lastBlock);
+
+      if (options.onUpdate) {
+        options.onUpdate(lastBlock);
+      }
+
+      if (options.subscriptionStore) {
+        for (const subscription of subscriptions) {
+          const subscriptionItem = {
+            id: subscription.id,
+            contractName: subscription.contractName,
+            contractAddress: subscription.contractAddress,
+            indexedToBlock: subscription.indexedToBlock,
+            indexedToLogIndex: subscription.indexedToLogIndex,
+            toBlock: subscription.toBlock,
+          };
+
+          options.subscriptionStore.save(subscriptionItem);
+        }
+      }
+
+      if (state.targetBlock !== "latest" && lastBlock === state.targetBlock) {
+        logger.trace("Reached indexing target block");
+        stop();
+        return;
+      }
+
+      schedule();
+    } catch (err) {
+      state.onError(err);
+      stop();
+    }
+  }
+
+  function subscribeToContract(subscribeOptions: CreateSubscriptionOptions) {
+    const contractName = subscribeOptions.name;
+    const contract = contracts.find((c) => c.name === contractName);
+    const id = subscribeOptions.id ?? uuidv4();
+
+    if (!contract) {
+      throw new Error(`Contract ${contractName} not found`);
+    }
+
+    logger.trace("Subscribing to", contractName, subscribeOptions.address);
+
+    for (const eventName in contract.handlers) {
+      const eventHandler = contract.handlers[eventName];
+
+      const eventAbi = getAbiItem({
+        abi: contract.abi,
+        name: eventName,
+      });
+
+      if (eventAbi.type !== "event") {
         throw new Error(
-          `eth_getLogs failed, code: ${responseBody.error.code}, message: ${responseBody.error.message}`
+          `Expected ${eventName} in ${contract.name} to be an event`
         );
       }
 
-      if (responseBody.result) {
-        return responseBody.result;
+      const topics = encodeEventTopics({
+        abi: contract.abi,
+        eventName,
+      });
+
+      if (topics.length === 0) {
+        throw new Error(`Failed to encode event topics for ${eventName}`);
       }
 
-      throw new Error(
-        `eth_getLogs failed, unexpected response: ${JSON.stringify(
-          responseBody
-        )}`
-      );
-    } catch (e) {
-      this.log(
-        Log.Debug,
-        "Failed range:",
-        fromBlock,
-        "to",
-        toBlock,
-        "retrying smaller range ...",
-        e
-      );
+      const topic = topics[0];
 
-      if (depth === this.options.getLogsMaxRetries) {
-        throw e;
-      }
+      const subscription: Subscription = {
+        id: id,
+        abi: [eventAbi],
+        contractName,
+        contractAddress: subscribeOptions.address.toLowerCase() as Hex,
+        eventName,
+        eventHandler: eventHandler as (event: BaseEvent) => Promise<void>,
+        topic,
+        eventAbi,
+        indexedToBlock: subscribeOptions.fromBlock ?? -1n,
+        toBlock: subscribeOptions.toBlock ?? "latest",
+        fetchedToBlock: -1n,
+        indexedToLogIndex: 0,
+      };
 
-      const chunks = [];
-      const step = Math.ceil((toBlock - fromBlock) / Math.min(depth, 2));
-
-      for (let i = fromBlock; i < toBlock; i += step + 1) {
-        chunks.push([i, Math.min(i + step, toBlock)]);
-      }
-
-      return (
-        await Promise.all(
-          chunks.map(([from, to]) => {
-            return this._fetchLogs(from, to, address, depth + 1);
-          })
-        )
-      ).flat();
+      subscriptions.push(subscription);
     }
   }
-}
 
-type Provider =
-  | ethers.providers.JsonRpcProvider
-  | ethers.providers.StaticJsonRpcProvider
-  | RetryProvider;
+  function indexToBlock(target: ToBlock): Promise<void> {
+    if (state.type !== "stopped") {
+      throw new Error("Indexer is already running");
+    }
 
-export async function createIndexer<T extends Storage>(
-  provider: Provider,
-  database: T,
-  handleEvent: EventHandler<T>,
-  options?: Partial<Options>
-): Promise<Indexer<T>> {
-  if (database.read) {
-    await database.read();
+    logger.debug("Indexing to block", target);
+
+    return new Promise((resolve, reject) => {
+      state = {
+        type: "running",
+        targetBlock: target,
+        onFinish: resolve,
+        onError: reject,
+        pollTimeout: setTimeout(poll, 0),
+      };
+    });
   }
 
-  if (database.init) {
-    await database.init();
+  async function stop() {
+    if (state.type !== "running") {
+      throw new Error("Indexer is not running");
+    }
+
+    logger.debug("Stopping indexer");
+
+    clearTimeout(state.pollTimeout);
+    state.onFinish();
+
+    state = {
+      type: "stopped",
+    };
   }
 
-  const subscriptions = await database.getSubscriptions();
-  const network = await provider.getNetwork();
-  return new Indexer(
-    provider,
-    network,
-    subscriptions,
-    database,
-    handleEvent,
-    options ?? {}
-  );
+  return {
+    subscribeToContract,
+    stop,
+
+    start: async () => {
+      return await indexToBlock("latest");
+    },
+
+    indexToBlock: async (target: ToBlock) => {
+      if (target === "latest") {
+        const lastBlock = await getLastBlockNumber();
+        return await indexToBlock(lastBlock);
+      }
+
+      return await indexToBlock(target);
+    },
+  };
 }

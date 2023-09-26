@@ -1,37 +1,74 @@
-/* eslint-disable @typescript-eslint/no-non-null-assertion */
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import type { Storage, Subscription } from "../index";
-import { ethers } from "ethers";
 import fs from "node:fs";
-import { mkdirSync } from "node:fs";
 import path from "node:path";
-import debounce from "../debounce.js";
 
-type Document = { [key: string]: any };
+import { Collection, Database, Document } from "@/storage";
+import debounce from "@/debounce.js";
 
-class Collection<T extends Document> {
-  private filename: string;
-  private data: T[] | null = null;
-  private save: ReturnType<typeof debounce>;
+function buildIndex<T extends Document>(data: T[]): { [key: string]: number } {
+  const index: { [key: string]: number } = {};
 
-  constructor(filename: string) {
-    this.filename = filename;
-    this.save = debounce(() => this._save(), 500);
-    mkdirSync(path.dirname(filename), { recursive: true });
+  for (let i = 0; i < data.length; i++) {
+    index[data[i].id] = i;
   }
 
-  private load(): T[] {
+  return index;
+}
+
+function stringify(_key: string, value: unknown) {
+  if (typeof value === "bigint") {
+    return { type: "bigint", value: value.toString() };
+  }
+  return value;
+}
+
+function parse(_key: string, value: unknown) {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    value.type === "bigint" &&
+    "value" in value &&
+    typeof value.value === "string"
+  ) {
+    return BigInt(value.value);
+  }
+  return value;
+}
+
+type Index = { [key: string]: number };
+
+class JsonCollection<T extends Document> implements Collection<T> {
+  private filename: string;
+  private data: T[] | null = null;
+  private index: Index | null = null;
+  private save: ReturnType<typeof debounce>;
+
+  constructor(filename: string, writeDelay: number) {
+    this.filename = filename;
+    if (writeDelay > 0) {
+      this.save = debounce(() => this._save(), writeDelay);
+    } else {
+      this.save = () => this._save();
+    }
+  }
+
+  private load(): { data: T[]; index: Index } {
     try {
-      if (this.data !== null) {
-        return this.data;
+      if (this.data !== null && this.index !== null) {
+        return { data: this.data, index: this.index };
       }
 
-      this.data = JSON.parse(fs.readFileSync(this.filename).toString()) as T[];
+      this.data = JSON.parse(
+        fs.readFileSync(this.filename).toString(),
+        parse
+      ) as T[];
+      this.index = buildIndex(this.data);
     } catch {
       this.data = [];
+      this.index = {};
     }
 
-    return this.data;
+    return { data: this.data, index: this.index };
   }
 
   private _save() {
@@ -39,154 +76,103 @@ class Collection<T extends Document> {
       throw new Error("Saving without loading first!");
     }
 
-    const rt = fs.writeFileSync(this.filename, JSON.stringify(this.data));
-    this.data == null;
+    const rt = fs.writeFileSync(
+      this.filename,
+      JSON.stringify(this.data, stringify)
+    );
+    this.data = null;
+    this.index = null;
+
     return rt;
   }
 
   insert(document: T): Promise<T> {
     if (typeof document !== "object") {
-      throw new Error("T must be an object");
+      throw new Error("Document must be an object");
     }
 
-    this.load();
+    const { data, index } = this.load();
 
-    this.data!.push(document);
+    data.push(document);
+    index[document.id] = data.length - 1;
 
     this.save();
 
     return Promise.resolve(document);
   }
 
-  findById(id: any): Promise<T | undefined> {
-    const data = this.load();
-    return Promise.resolve(data.find((doc: T) => doc.id === id));
+  findById(id: string): Promise<T | null> {
+    const { data, index } = this.load();
+    return Promise.resolve(data[index[id]] ?? null);
   }
 
-  updateById(id: string, fun: (doc: T) => T): Promise<T | undefined> {
-    this.load();
+  updateById(id: string, fun: (doc: T) => T): Promise<T | null> {
+    const { data, index } = this.load();
 
-    const index = this.data!.findIndex((doc: T) => doc.id === id);
-
-    if (index < 0) {
-      return Promise.resolve(undefined);
+    if (index[id] === undefined) {
+      return Promise.resolve(null);
     }
 
-    this.data![index] = fun(this.data![index]);
-
-    const item = this.data![index];
+    const updatedRecord = fun(data[index[id]]);
+    data[index[id]] = { ...updatedRecord, id: data[index[id]].id };
 
     this.save();
 
-    return Promise.resolve(item);
+    return Promise.resolve(data[index[id]]);
   }
 
   // returns true it inserted a new record
-  upsertById(id: string, fun: (doc: T | undefined) => T): Promise<boolean> {
-    this.load();
+  upsertById(id: string, fun: (doc: T | null) => T): Promise<boolean> {
+    const { data, index } = this.load();
 
-    const index = this.data!.findIndex((doc: T) => doc.id === id);
+    const isNewDocument = index[id] === undefined;
 
-    if (index < 0) {
-      this.data!.push(fun(undefined));
+    if (isNewDocument) {
+      this.insert(fun(null));
     } else {
-      this.data![index] = fun(this.data![index]);
+      const updatedRecord = fun(data[index[id]]);
+      data[index[id]] = { ...updatedRecord, id: data[index[id]].id };
+      this.save();
     }
 
-    this.save();
-
-    return Promise.resolve(index < 0);
-  }
-
-  updateOneWhere(
-    filter: (doc: T) => boolean,
-    fun: (doc: T) => T
-  ): Promise<T | undefined> {
-    this.load();
-
-    const index = this.data!.findIndex(filter);
-
-    if (index < 0) {
-      return Promise.resolve(undefined);
-    }
-
-    this.data![index] = fun(this.data![index]);
-
-    const item = this.data![index];
-
-    this.save();
-
-    return Promise.resolve(item);
-  }
-
-  async findWhere(filter: (doc: T) => boolean): Promise<T[]> {
-    this.load();
-    return this.data!.filter(filter);
-  }
-
-  async findOneWhere(filter: (doc: T) => boolean): Promise<T | undefined> {
-    this.load();
-    return this.data!.find(filter);
+    return Promise.resolve(isNewDocument);
   }
 
   async all(): Promise<T[]> {
-    this.load();
-    return this.data!;
-  }
-
-  async replaceAll(data: T[]): Promise<T[]> {
-    this.data = data;
-    this.save();
-    return this.data;
+    const { data } = this.load();
+    return data;
   }
 }
 
-export default class JsonStorage implements Storage {
-  dir: string;
-  collections: { [key: string]: Collection<Document> };
+export interface Options {
+  writeDelay?: number;
+}
 
-  constructor(dir: string) {
-    this.dir = dir;
-    this.collections = {};
-  }
+export async function createJsonDatabase(
+  dir: string,
+  options: Options
+): Promise<Database> {
+  const collections: Record<string, Collection<Document>> = {};
 
-  async init() {
-    fs.mkdirSync(this.dir, { recursive: true });
-  }
+  fs.mkdirSync(dir, { recursive: true });
 
-  collection<T extends Document>(key: string) {
-    if (!this.collections[key]) {
-      this.collections[key] = new Collection(
-        path.join(this.dir, `${key}.json`)
-      );
-    }
+  return {
+    collection<T extends Document>(name: string): Collection<T> {
+      if (!collections[name]) {
+        const filename = path.join(dir, `${name}.json`);
 
-    return this.collections[key] as Collection<T>;
-  }
+        if (!fs.existsSync(filename)) {
+          fs.mkdirSync(path.dirname(filename), { recursive: true });
+          fs.writeFileSync(filename, "[]");
+        }
 
-  async getSubscriptions(): Promise<Subscription[]> {
-    const subs = await this.collection<{
-      address: string;
-      abi: string;
-      fromBlock: number;
-    }>("_subscriptions").all();
+        collections[name] = new JsonCollection(
+          filename,
+          options.writeDelay ?? 500
+        );
+      }
 
-    return subs.map((sub) => ({
-      address: sub.address,
-      contract: new ethers.Contract(sub.address, sub.abi),
-      fromBlock: sub.fromBlock,
-    }));
-  }
-
-  async setSubscriptions(subscriptions: Subscription[]): Promise<void> {
-    this.collection("_subscriptions").replaceAll(
-      subscriptions.map((sub) => ({
-        address: sub.address,
-        abi: JSON.parse(
-          sub.contract.interface.format(ethers.utils.FormatTypes.json) as string
-        ),
-        fromBlock: sub.fromBlock,
-      }))
-    );
-  }
+      return collections[name] as Collection<T>;
+    },
+  };
 }
