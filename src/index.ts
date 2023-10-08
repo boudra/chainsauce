@@ -8,10 +8,8 @@ import {
 import {
   decodeEventLog,
   decodeFunctionResult,
-  encodeAbiParameters,
   encodeEventTopics,
   encodeFunctionData,
-  encodeFunctionResult,
   fromHex,
   getAbiItem,
 } from "viem";
@@ -22,7 +20,7 @@ import {
   JsonRpcRangeTooWideError,
   Log,
 } from "@/rpc";
-import { EventStore } from "@/eventStore";
+import { Cache } from "@/cache";
 import { SubscriptionStore } from "@/subscriptionStore";
 import { Logger, LoggerBackend, LogLevel } from "@/logger";
 import { Hex, ToBlock, EventHandler, EventHandlers, Event } from "@/types";
@@ -31,17 +29,17 @@ export { Abi };
 
 export { Database } from "@/storage";
 export { createJsonDatabase } from "@/storage/json";
-export { createSqliteEventStore } from "@/eventStore";
+export { createSqliteCache } from "@/cache";
 export { createSqliteSubscriptionStore } from "@/subscriptionStore";
 
-class BigIntMath {
-  static min(a: bigint, b: bigint): bigint {
-    return a < b ? a : b;
-  }
-  static max(a: bigint, b: bigint): bigint {
-    return a > b ? a : b;
-  }
-}
+// class BigIntMath {
+//   static min(a: bigint, b: bigint): bigint {
+//     return a < b ? a : b;
+//   }
+//   static max(a: bigint, b: bigint): bigint {
+//     return a > b ? a : b;
+//   }
+// }
 
 export { Hex, ToBlock, Event, LoggerBackend, LogLevel, Log };
 
@@ -122,7 +120,7 @@ export type Options<TAbis extends Record<string, Abi>, TContext = unknown> = {
     targetBlock: bigint;
     pendingEventsCount: number;
   }) => void;
-  eventStore?: EventStore;
+  cache?: Cache;
   subscriptionStore?: SubscriptionStore;
 };
 
@@ -249,10 +247,8 @@ class IndexerBuilder<TAbis extends Record<string, Abi>, TContext = unknown> {
     return new IndexerBuilder({ ...this.options, onProgress });
   }
 
-  eventStore(
-    eventStore: Options<TAbis>["eventStore"]
-  ): IndexerBuilder<TAbis, TContext> {
-    return new IndexerBuilder({ ...this.options, eventStore });
+  cache(cache: Options<TAbis>["cache"]): IndexerBuilder<TAbis, TContext> {
+    return new IndexerBuilder({ ...this.options, cache: cache });
   }
 
   subscriptionStore(
@@ -370,11 +366,10 @@ async function fetchSubscriptions(args: {
   subscriptions: Subscription[];
   rpc: RpcClient;
   pushEvent: (event: Event) => void;
-  eventStore: EventStore | null;
+  cache: Cache | null;
   logger: Logger;
 }) {
-  const { rpc, subscriptions, targetBlock, eventStore, logger, pushEvent } =
-    args;
+  const { rpc, subscriptions, targetBlock, cache, logger, pushEvent } = args;
 
   const activeSubscriptions = filterActiveSubscriptions({
     subscriptions,
@@ -398,9 +393,9 @@ async function fetchSubscriptions(args: {
   for (const { from, to, subscription } of activeSubscriptions) {
     let finalFetchFromBlock = from;
 
-    if (eventStore) {
+    if (cache) {
       // fetch events from the event store
-      const result = await eventStore.getEvents({
+      const result = await cache.getEvents({
         address: subscription.contractAddress,
         topic: subscription.topic,
         fromBlock: from,
@@ -494,8 +489,8 @@ async function fetchSubscriptions(args: {
           pushEvent(event);
         }
 
-        if (eventStore) {
-          await eventStore.insertEvents({
+        if (cache) {
+          await cache.insertEvents({
             topics: topics,
             address: address,
             fromBlock: currentBlock,
@@ -599,7 +594,7 @@ export function createIndexer<
     });
 
   const logger = new Logger(logLevel, loggerBackend);
-  const eventStore = options.eventStore ?? null;
+  const cache = options.cache ?? null;
   let rpc: RpcClient;
 
   if ("rpc" in options && "url" in options.rpc) {
@@ -649,7 +644,7 @@ export function createIndexer<
         targetBlock,
         subscriptions,
         rpc,
-        eventStore,
+        cache: cache,
         pushEvent(event) {
           eventQueue.push(event);
         },
@@ -1021,8 +1016,8 @@ export function createIndexer<
 
     let result: Hex;
 
-    if (eventStore) {
-      const cachedRead = await eventStore.getContractRead({
+    if (cache) {
+      const cachedRead = await cache.getContractRead({
         address: args.address,
         blockNumber: args.blockNumber,
         functionName: args.functionName,
@@ -1041,8 +1036,8 @@ export function createIndexer<
       blockNumber: args.blockNumber,
     });
 
-    if (eventStore) {
-      await eventStore.insertContractRead({
+    if (cache) {
+      await cache.insertContractRead({
         address: args.address,
         blockNumber: args.blockNumber,
         functionName: args.functionName,

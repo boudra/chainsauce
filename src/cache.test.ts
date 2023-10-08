@@ -1,4 +1,4 @@
-import { createMemoryEventStore } from "@/eventStore";
+import { createInMemoryCache } from "@/cache";
 import { Event } from "@/types";
 import { describe, it, expect } from "vitest";
 
@@ -15,7 +15,7 @@ const makeEvent = (blockNumber: bigint): Event => ({
 describe("event store", () => {
   it("inserts and retrieves events", async () => {
     const max256BitBigInt = 2n ** 256n - 1n;
-    const eventStore = createMemoryEventStore();
+    const cache = createInMemoryCache();
 
     const event: Event = {
       name: "EventName",
@@ -27,7 +27,7 @@ describe("event store", () => {
       logIndex: 0,
     };
 
-    await eventStore.insertEvents({
+    await cache.insertEvents({
       events: [event],
       address: "0x123",
       topics: ["0x456"],
@@ -36,7 +36,7 @@ describe("event store", () => {
     });
 
     {
-      const storedEvents = await eventStore.getEvents({
+      const storedEvents = await cache.getEvents({
         address: "0x123",
         topic: "0x456",
         fromBlock: 0n,
@@ -53,7 +53,7 @@ describe("event store", () => {
     }
 
     {
-      const storedEvents = await eventStore.getEvents({
+      const storedEvents = await cache.getEvents({
         address: "0x123",
         topic: "0x456",
         fromBlock: 0n,
@@ -64,7 +64,7 @@ describe("event store", () => {
     }
 
     {
-      const storedEvents = await eventStore.getEvents({
+      const storedEvents = await cache.getEvents({
         address: "0x123",
         topic: "0x456",
         fromBlock: 100n,
@@ -81,7 +81,7 @@ describe("event store", () => {
     }
 
     {
-      const storedEvents = await eventStore.getEvents({
+      const storedEvents = await cache.getEvents({
         address: "0x123",
         topic: "0x456",
         fromBlock: 0n,
@@ -99,7 +99,7 @@ describe("event store", () => {
   });
 
   it("merges sequential log ranges", async () => {
-    const eventStore = createMemoryEventStore();
+    const cache = createInMemoryCache();
 
     const makeEvent = (blockNumber: bigint): Event => ({
       name: "EventName",
@@ -114,7 +114,7 @@ describe("event store", () => {
     const eventsBatch1 = [makeEvent(1n), makeEvent(2n)];
     const eventsBatch2 = [makeEvent(3n), makeEvent(4n)];
 
-    await eventStore.insertEvents({
+    await cache.insertEvents({
       events: eventsBatch1,
       address: "0x123",
       topics: ["0x456"],
@@ -122,7 +122,7 @@ describe("event store", () => {
       toBlock: 2n,
     });
 
-    await eventStore.insertEvents({
+    await cache.insertEvents({
       events: eventsBatch2,
       address: "0x123",
       topics: ["0x456"],
@@ -130,7 +130,7 @@ describe("event store", () => {
       toBlock: 4n,
     });
 
-    const storedEvents = await eventStore.getEvents({
+    const storedEvents = await cache.getEvents({
       address: "0x123",
       topic: "0x456",
       fromBlock: 1n,
@@ -149,12 +149,12 @@ describe("event store", () => {
   });
 
   it("merges overlapping log ranges", async () => {
-    const eventStore = createMemoryEventStore();
+    const cache = createInMemoryCache();
 
     const eventsBatch1 = [makeEvent(1n), makeEvent(2n)];
     const eventsBatch2 = [makeEvent(2n), makeEvent(4n)];
 
-    await eventStore.insertEvents({
+    await cache.insertEvents({
       events: eventsBatch1,
       address: "0x123",
       topics: ["0x456"],
@@ -162,7 +162,7 @@ describe("event store", () => {
       toBlock: 2n,
     });
 
-    await eventStore.insertEvents({
+    await cache.insertEvents({
       events: eventsBatch2,
       address: "0x123",
       topics: ["0x456"],
@@ -170,7 +170,7 @@ describe("event store", () => {
       toBlock: 4n,
     });
 
-    const storedEvents = await eventStore.getEvents({
+    const storedEvents = await cache.getEvents({
       address: "0x123",
       topic: "0x456",
       fromBlock: 1n,
@@ -189,9 +189,9 @@ describe("event store", () => {
   });
 
   it("returns empty array if range not fetched", async () => {
-    const eventStore = createMemoryEventStore();
+    const cache = createInMemoryCache();
 
-    await eventStore.insertEvents({
+    await cache.insertEvents({
       events: [makeEvent(1n)],
       address: "0x123",
       topics: ["0x456"],
@@ -199,7 +199,7 @@ describe("event store", () => {
       toBlock: 2n,
     });
 
-    const storedEvents = await eventStore.getEvents({
+    const storedEvents = await cache.getEvents({
       address: "0x123",
       topic: "0x456",
       fromBlock: 3n,

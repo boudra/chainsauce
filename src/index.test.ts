@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { buildIndexer, ToBlock, Hex, Log, Event } from "@/index";
-import { createSqliteEventStore } from "@/eventStore";
+import { createInMemoryCache } from "@/cache";
 import { createSqliteSubscriptionStore } from "@/subscriptionStore";
 import { RpcClient } from "@/rpc";
 import { encodeEventTopics, zeroAddress } from "viem";
@@ -311,11 +311,11 @@ describe("index ERC20 contract", () => {
 
   test("event store is used", async () => {
     const getLogsMock = vi.fn().mockImplementation(rpcClient.getLogs);
-    const eventStore = createSqliteEventStore(":memory:");
+    const cache = createInMemoryCache();
 
     let indexer = buildIndexer()
       .rpc({ ...rpcClient, getLogs: getLogsMock })
-      .eventStore(eventStore)
+      .cache(cache)
       .contracts(Contracts)
       .addSubscription({
         contract: "Counter",
@@ -350,7 +350,7 @@ describe("index ERC20 contract", () => {
 
     indexer = buildIndexer()
       .rpc({ ...rpcClient, getLogs: getLogsMock })
-      .eventStore(eventStore)
+      .cache(cache)
       .contracts(Contracts)
       .addSubscription({
         contract: "Counter",
