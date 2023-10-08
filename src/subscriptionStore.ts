@@ -7,6 +7,7 @@ export type Subscription = {
   contractAddress: Hex;
   indexedToBlock: bigint;
   indexedToLogIndex: number;
+  fromBlock: bigint;
   toBlock: ToBlock;
 };
 
@@ -22,6 +23,7 @@ type SubscriptionRow = {
   contractName: string;
   contractAddress: Hex;
   indexedToBlock: string;
+  fromBlock: string;
   indexedToLogIndex: number;
   toBlock: string;
 };
@@ -37,9 +39,10 @@ export function createSqliteSubscriptionStore(
       id TEXT PRIMARY KEY,
       contractName TEXT,
       contractAddress TEXT,
+      fromBlock INTEGER,
+      toBlock TEXT,
       indexedToBlock INTEGER,
-      indexedToLogIndex INTEGER,
-      toBlock TEXT
+      indexedToLogIndex INTEGER
     )
   `
   ).run();
@@ -48,6 +51,7 @@ export function createSqliteSubscriptionStore(
     return {
       ...row,
       indexedToBlock: BigInt(row.indexedToBlock),
+      fromBlock: BigInt(row.fromBlock),
       toBlock: row.toBlock === "latest" ? "latest" : BigInt(row.toBlock),
     } as Subscription;
   }
@@ -55,13 +59,14 @@ export function createSqliteSubscriptionStore(
   return {
     async save(subscription: Subscription): Promise<void> {
       const stmt = db.prepare(`
-        INSERT OR REPLACE INTO subscriptions (id, contractName, contractAddress, indexedToBlock, indexedToLogIndex, toBlock)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO subscriptions (id, contractName, contractAddress, fromBlock, indexedToBlock, indexedToLogIndex, toBlock)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `);
       stmt.run(
         subscription.id,
         subscription.contractName,
         subscription.contractAddress,
+        subscription.fromBlock.toString(),
         subscription.indexedToBlock.toString(),
         subscription.indexedToLogIndex,
         subscription.toBlock

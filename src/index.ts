@@ -1,6 +1,20 @@
 import { Abi, AbiEvent, ExtractAbiEventNames } from "abitype";
-import { decodeEventLog, encodeEventTopics, fromHex, getAbiItem } from "viem";
-import { v4 as uuidv4 } from "uuid";
+import {
+  AbiFunction,
+  AbiParametersToPrimitiveTypes,
+  ExtractAbiFunction,
+  ExtractAbiFunctionNames,
+} from "abitype";
+import {
+  decodeEventLog,
+  decodeFunctionResult,
+  encodeAbiParameters,
+  encodeEventTopics,
+  encodeFunctionData,
+  encodeFunctionResult,
+  fromHex,
+  getAbiItem,
+} from "viem";
 
 import {
   createRpcClient,
@@ -11,7 +25,23 @@ import {
 import { EventStore } from "@/eventStore";
 import { SubscriptionStore } from "@/subscriptionStore";
 import { Logger, LoggerBackend, LogLevel } from "@/logger";
-import { Hex, ToBlock, EventHandlers, BaseEvent, Event } from "@/types";
+import { Hex, ToBlock, EventHandler, EventHandlers, Event } from "@/types";
+
+export { Abi };
+
+export { Database } from "@/storage";
+export { createJsonDatabase } from "@/storage/json";
+export { createSqliteEventStore } from "@/eventStore";
+export { createSqliteSubscriptionStore } from "@/subscriptionStore";
+
+class BigIntMath {
+  static min(a: bigint, b: bigint): bigint {
+    return a < b ? a : b;
+  }
+  static max(a: bigint, b: bigint): bigint {
+    return a > b ? a : b;
+  }
+}
 
 export { Hex, ToBlock, Event, LoggerBackend, LogLevel, Log };
 
@@ -22,70 +52,517 @@ type Subscription = {
   contractAddress: `0x${string}`;
   topic: `0x${string}`;
   eventName: string;
-  eventHandler: (event: BaseEvent) => Promise<void>;
+  eventHandler?: EventHandler<Abi>;
   eventAbi: AbiEvent;
   toBlock: ToBlock;
+  fromBlock: bigint;
   fetchedToBlock: bigint;
   indexedToBlock: bigint;
   indexedToLogIndex: number;
 };
 
-export type Contract<T extends Abi, N extends ExtractAbiEventNames<T>> = {
-  name: string;
-  abi: T;
-  address?: `0x${string}`;
-  handlers: EventHandlers<T, N>;
-  fromBlock?: bigint;
-  toBlock?: ToBlock;
+export type Contract<
+  TAbi extends Abi = Abi,
+  TContext = unknown,
+  TAbis extends Record<string, Abi> = Record<string, Abi>,
+  N extends ExtractAbiEventNames<TAbi> = ExtractAbiEventNames<TAbi>
+> = {
+  abi: TAbi;
+  subscriptions?: {
+    address: Hex;
+    fromBlock?: bigint;
+    toBlock?: ToBlock;
+  }[];
+  handlers?: Partial<EventHandlers<TAbi, N, TContext, TAbis>>;
 };
 
-export type CreateSubscriptionOptions = {
-  id?: string;
-  name: string;
-  address: Hex;
+type UserEventHandler<T, TAbiName, TEventName> = T extends Indexer<
+  infer TAbis,
+  infer TContext
+>
+  ? (args: {
+      context: TContext;
+      readContract: T["readContract"];
+      subscribeToContract: T["subscribeToContract"];
+      event: TAbiName extends keyof TAbis
+        ? TEventName extends ExtractAbiEventNames<TAbis[TAbiName]>
+          ? Event<TAbis[TAbiName], TEventName>
+          : never
+        : never;
+    }) => Promise<void>
+  : never;
+
+export { UserEventHandler as EventHandler };
+
+export type CreateSubscriptionOptions<TName> = {
+  contract: TName;
+  address: string;
+  indexedToBlock?: bigint;
   fromBlock?: bigint;
   fromLogIndex?: number;
   toBlock?: ToBlock;
+  id?: string;
 };
 
-export function contract<
-  T extends Abi,
-  N extends ExtractAbiEventNames<T>
->(options: {
-  name: string;
-  abi: T;
-  address?: `0x${string}`;
-  fromBlock?: bigint;
-  toBlock?: ToBlock;
-  handlers: EventHandlers<T, N>;
-}): Contract<T, N> {
-  return options;
-}
-
-export type Options = {
+export type Options<TAbis extends Record<string, Abi>, TContext = unknown> = {
   logLevel?: keyof typeof LogLevel;
-  Logger?: LoggerBackend;
+  logger?: LoggerBackend;
   eventPollIntervalMs?: number;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  contracts: Contract<any, any>[];
+  context: TContext;
+  contracts: ContractsFromAbis<TAbis>;
   rpc: RpcClient | { url: string; fetch?: typeof globalThis.fetch };
-  onEvent?: (event: BaseEvent) => Promise<void>;
-  onUpdate?: (block: bigint) => void;
+  onEvent?: (args: {
+    event: Event;
+    context: TContext;
+    readContract: Indexer<TAbis, TContext>["readContract"];
+    subscribeToContract: Indexer<TAbis, TContext>["subscribeToContract"];
+  }) => Promise<void>;
   onProgress?: (progress: {
     currentBlock: bigint;
-    lastBlock: bigint;
+    targetBlock: bigint;
     pendingEventsCount: number;
   }) => void;
   eventStore?: EventStore;
   subscriptionStore?: SubscriptionStore;
 };
 
-export interface Indexer {
-  subscribeToContract(options: CreateSubscriptionOptions): void;
-  indexToBlock(toBlock: ToBlock): Promise<void>;
-  start(): Promise<void>;
-  stop(): Promise<void>;
+type ContractsFromAbis<TAbis extends Record<string, Abi>> = {
+  [K in keyof TAbis]: Contract<TAbis[K]>;
+};
+
+class IndexerBuilder<TAbis extends Record<string, Abi>, TContext = unknown> {
+  options: Partial<Options<TAbis, TContext>>;
+
+  constructor(options: Partial<Options<TAbis, TContext>>) {
+    this.options = options;
+  }
+
+  contracts<TNewContracts extends Record<string, Abi>>(
+    abis: TNewContracts
+  ): IndexerBuilder<TNewContracts, TContext> {
+    const contracts = Object.fromEntries(
+      Object.entries(abis).map(([name, abi]) => [name, { abi }])
+    ) as ContractsFromAbis<TNewContracts>;
+
+    const newOptions = {
+      ...this.options,
+      contracts: contracts,
+    } as Options<TNewContracts, TContext>;
+
+    return new IndexerBuilder(newOptions);
+  }
+
+  addEventHandlers<
+    TContractName extends keyof TAbis,
+    TEventName extends ExtractAbiEventNames<TAbis[TContractName]>
+  >(args: {
+    contract: TContractName;
+    handlers: Partial<
+      EventHandlers<TAbis[TContractName], TEventName, TContext, TAbis>
+    >;
+  }): IndexerBuilder<TAbis, TContext> {
+    const { contract: contractName, handlers } = args;
+
+    const newOptions = {
+      ...this.options,
+      contracts: {
+        ...(this.options.contracts ?? {}),
+        [contractName]: {
+          ...(this.options.contracts?.[contractName] ?? {}),
+          handlers: handlers,
+        },
+      },
+    } as Options<TAbis, TContext>;
+
+    return new IndexerBuilder(newOptions);
+  }
+
+  addEventHandler<
+    TContractName extends keyof TAbis,
+    TEventName extends ExtractAbiEventNames<TAbis[TContractName]>
+  >(args: {
+    contract: TContractName;
+    event: TEventName | ExtractAbiEventNames<TAbis[TContractName]>;
+    handler: EventHandler<TAbis[TContractName], TEventName, TContext, TAbis>;
+  }) {
+    const { contract: contractName, event: eventName, handler } = args;
+
+    const newOptions = {
+      ...this.options,
+      contracts: {
+        ...(this.options.contracts ?? {}),
+        [contractName]: {
+          ...(this.options.contracts?.[contractName] ?? {}),
+          handlers: {
+            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+            // @ts-ignore
+            ...(this.options.contracts?.[contractName]?.handlers ?? {}),
+            [eventName]: handler,
+          },
+        },
+      },
+    } as Options<TAbis, TContext>;
+
+    return new IndexerBuilder(newOptions);
+  }
+
+  context<TNewContext>(
+    context: TNewContext
+  ): IndexerBuilder<TAbis, TNewContext> {
+    const newOptions = {
+      ...this.options,
+      context,
+    } as Options<TAbis, TNewContext>;
+
+    return new IndexerBuilder<TAbis, TNewContext>(newOptions);
+  }
+
+  rpc(rpc: Options<TAbis>["rpc"]): IndexerBuilder<TAbis, TContext> {
+    return new IndexerBuilder({ ...this.options, rpc });
+  }
+
+  logger(logger: Options<TAbis>["logger"]): IndexerBuilder<TAbis, TContext> {
+    return new IndexerBuilder({ ...this.options, logger });
+  }
+
+  logLevel(
+    logLevel: Options<TAbis>["logLevel"]
+  ): IndexerBuilder<TAbis, TContext> {
+    return new IndexerBuilder({ ...this.options, logLevel });
+  }
+
+  eventPollIntervalMs(
+    eventPollIntervalMs: Options<TAbis>["eventPollIntervalMs"]
+  ): IndexerBuilder<TAbis, TContext> {
+    return new IndexerBuilder({ ...this.options, eventPollIntervalMs });
+  }
+
+  onEvent(
+    onEvent: Options<TAbis, TContext>["onEvent"]
+  ): IndexerBuilder<TAbis, TContext> {
+    return new IndexerBuilder({ ...this.options, onEvent });
+  }
+
+  onProgress(
+    onProgress: Options<TAbis>["onProgress"]
+  ): IndexerBuilder<TAbis, TContext> {
+    return new IndexerBuilder({ ...this.options, onProgress });
+  }
+
+  eventStore(
+    eventStore: Options<TAbis>["eventStore"]
+  ): IndexerBuilder<TAbis, TContext> {
+    return new IndexerBuilder({ ...this.options, eventStore });
+  }
+
+  subscriptionStore(
+    subscriptionStore: Options<TAbis>["subscriptionStore"]
+  ): IndexerBuilder<TAbis, TContext> {
+    return new IndexerBuilder({ ...this.options, subscriptionStore });
+  }
+
+  addSubscription(
+    options: CreateSubscriptionOptions<keyof TAbis>
+  ): IndexerBuilder<TAbis, TContext> {
+    const { contract: contractName } = options;
+
+    if (!this.options.contracts) {
+      throw new Error(
+        `Failed to add contract subscription: contracts are not defined`
+      );
+    }
+
+    const contract = this.options.contracts?.[contractName];
+
+    if (!contract) {
+      throw new Error(
+        `Failed to add contract subscription: contract ${String(
+          contractName
+        )} is not found`
+      );
+    }
+
+    const newOptions = {
+      ...this.options,
+      contracts: {
+        ...this.options.contracts,
+        [contractName]: {
+          ...contract,
+          subscriptions: [
+            // TODO: something is up with the types here, logic is valid
+            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+            // @ts-ignore
+            ...(contract.subscriptions ?? []),
+            {
+              address: options.address,
+              fromBlock: options.fromBlock,
+              toBlock: options.toBlock,
+            },
+          ],
+        },
+      },
+    } as Options<TAbis, TContext>;
+
+    return new IndexerBuilder(newOptions);
+  }
+
+  build(): Indexer<TAbis, TContext> {
+    if (!this.options.rpc) {
+      throw new Error("Failed to build indexer: rpc is not set");
+    }
+
+    const options: Options<TAbis, TContext> = {
+      ...this.options,
+      rpc: this.options.rpc,
+      contracts: this.options.contracts ?? ({} as ContractsFromAbis<TAbis>),
+      context: this.options.context ?? ({} as TContext),
+    };
+
+    return createIndexer(options);
+  }
 }
+
+export function buildIndexer() {
+  return new IndexerBuilder({});
+}
+
+function filterActiveSubscriptions(args: {
+  subscriptions: Subscription[];
+  targetBlock: bigint;
+}) {
+  const { targetBlock, subscriptions } = args;
+
+  return subscriptions.flatMap((sub) => {
+    let fromBlock;
+
+    if (sub.indexedToBlock > targetBlock) {
+      return [];
+    } else if (sub.fetchedToBlock > sub.indexedToBlock) {
+      fromBlock = sub.fetchedToBlock + 1n;
+    } else {
+      fromBlock = sub.indexedToBlock + 1n;
+    }
+
+    let toBlock;
+
+    if (sub.toBlock !== "latest" && sub.toBlock < targetBlock) {
+      toBlock = sub.toBlock;
+    } else {
+      toBlock = targetBlock;
+    }
+
+    if (fromBlock > toBlock) {
+      return [];
+    }
+
+    return [
+      {
+        from: fromBlock,
+        to: toBlock,
+        subscription: sub,
+      },
+    ];
+  });
+}
+
+async function fetchSubscriptions(args: {
+  targetBlock: bigint;
+  subscriptions: Subscription[];
+  rpc: RpcClient;
+  pushEvent: (event: Event) => void;
+  eventStore: EventStore | null;
+  logger: Logger;
+}) {
+  const { rpc, subscriptions, targetBlock, eventStore, logger, pushEvent } =
+    args;
+
+  const activeSubscriptions = filterActiveSubscriptions({
+    subscriptions,
+    targetBlock,
+  });
+
+  const subscriptionIndex = activeSubscriptions.reduce(
+    (acc, { subscription }) => {
+      acc[`${subscription.contractAddress}:${subscription.topic}`] =
+        subscription;
+      return acc;
+    },
+    {} as Record<string, Subscription>
+  );
+
+  const fetchRequests: Record<
+    string,
+    { from: bigint; to: bigint; subscriptions: Subscription[] }
+  > = {};
+
+  for (const { from, to, subscription } of activeSubscriptions) {
+    let finalFetchFromBlock = from;
+
+    if (eventStore) {
+      // fetch events from the event store
+      const result = await eventStore.getEvents({
+        address: subscription.contractAddress,
+        topic: subscription.topic,
+        fromBlock: from,
+        toBlock: to,
+      });
+
+      if (result !== null) {
+        for (const event of result.events) {
+          pushEvent(event);
+        }
+
+        finalFetchFromBlock = result.toBlock + 1n;
+
+        if (finalFetchFromBlock >= to) {
+          continue;
+        }
+      }
+    }
+
+    // group subscriptions by fromBlock and toBlock to reduce the number of
+    // requests to the RPC endpoint
+    const group = `${finalFetchFromBlock}:${to}:${subscription.contractAddress}`;
+
+    fetchRequests[group] = fetchRequests[group] ?? {
+      from: finalFetchFromBlock,
+      to: to,
+      subscriptions: [],
+    };
+
+    fetchRequests[group].subscriptions.push(subscription);
+  }
+
+  for (const { from, to, subscriptions } of Object.values(fetchRequests)) {
+    let currentBlock = from;
+
+    const address = subscriptions[0].contractAddress;
+    const topics = subscriptions.map((s) => s.topic);
+
+    let steps = 1n;
+
+    while (currentBlock <= to) {
+      try {
+        const toBlock = currentBlock + (targetBlock - currentBlock) / steps;
+
+        logger.trace(`Fetching events ${currentBlock}-${toBlock} (${address})`);
+
+        const logs = await rpc.getLogs({
+          address: address,
+          fromBlock: currentBlock,
+          toBlock: toBlock,
+          topics: [topics],
+        });
+
+        const events = [];
+
+        for (const log of logs) {
+          const subscription =
+            subscriptionIndex[`${log.address}:${log.topics[0]}`];
+
+          if (subscription === undefined) {
+            continue;
+          }
+
+          const parsedEvent = decodeEventLog({
+            abi: subscription.abi,
+            data: log.data,
+            topics: log.topics,
+          });
+
+          if (
+            log.transactionHash === null ||
+            log.blockNumber === null ||
+            log.logIndex === null
+          ) {
+            throw new Error("Event is still pending");
+          }
+
+          const blockNumber = fromHex(log.blockNumber, "bigint");
+
+          const event: Event = {
+            name: subscription.eventName,
+            params: parsedEvent.args,
+            address: log.address,
+            topic: log.topics[0],
+            transactionHash: log.transactionHash,
+            blockNumber: blockNumber,
+            logIndex: fromHex(log.logIndex, "number"),
+          };
+
+          events.push(event);
+          pushEvent(event);
+        }
+
+        if (eventStore) {
+          await eventStore.insertEvents({
+            topics: topics,
+            address: address,
+            fromBlock: currentBlock,
+            toBlock: toBlock,
+            events,
+          });
+        }
+
+        currentBlock = toBlock + 1n;
+
+        // range successfully fetched, fetch wider range
+        steps = steps / 2n;
+        if (steps < 1n) {
+          steps = 1n;
+        }
+      } catch (error) {
+        if (error instanceof JsonRpcRangeTooWideError) {
+          logger.warn("Range too wide, splitting in half and retrying");
+          // range too wide, split in half and retry
+          steps = steps * 2n;
+          continue;
+        }
+
+        throw error;
+      }
+    }
+  }
+
+  return activeSubscriptions.map(({ subscription }) => subscription.id);
+}
+
+export interface Indexer<
+  TAbis extends Record<string, Abi> = Record<string, Abi>,
+  TContext = unknown
+> {
+  context: TContext;
+
+  indexToBlock(toBlock: ToBlock): Promise<void>;
+  watch(): Promise<void>;
+
+  stop(): Promise<void>;
+
+  subscribeToContract(options: CreateSubscriptionOptions<keyof TAbis>): void;
+
+  readContract<
+    TContractName extends keyof TAbis,
+    TAbi extends Abi = TAbis[TContractName],
+    TFunctionName extends ExtractAbiFunctionNames<
+      TAbi,
+      "pure" | "view"
+    > = ExtractAbiFunctionNames<TAbi, "pure" | "view">,
+    TAbiFunction extends AbiFunction = ExtractAbiFunction<TAbi, TFunctionName>,
+    TReturn = AbiParametersToPrimitiveTypes<TAbiFunction["outputs"], "outputs">
+  >(args: {
+    contract: TContractName | keyof TAbis;
+    address: Hex;
+    functionName:
+      | TFunctionName
+      | ExtractAbiFunctionNames<TAbi, "pure" | "view">;
+    args?: AbiParametersToPrimitiveTypes<TAbiFunction["inputs"], "inputs">;
+    blockNumber: bigint;
+  }): Promise<TReturn extends readonly [infer inner] ? inner : TReturn>;
+}
+
+type InitialIndexerState = {
+  type: "initial";
+};
 
 type StoppedIndexerState = {
   type: "stopped";
@@ -99,9 +576,15 @@ type RunningIndexerState = {
   onFinish: () => void;
 };
 
-type IndexerState = RunningIndexerState | StoppedIndexerState;
+type IndexerState =
+  | RunningIndexerState
+  | StoppedIndexerState
+  | InitialIndexerState;
 
-export async function createIndexer(options: Options): Promise<Indexer> {
+export function createIndexer<
+  TContext = unknown,
+  TAbis extends Record<string, Abi> = Record<string, Abi>
+>(options: Options<TAbis, TContext>): Indexer<TAbis, TContext> {
   const eventPollIntervalMs = options.eventPollIntervalMs ?? 1000;
   const logLevel: LogLevel = LogLevel[options.logLevel ?? "warn"];
 
@@ -109,259 +592,82 @@ export async function createIndexer(options: Options): Promise<Indexer> {
     throw new Error(`Invalid log level: ${options.logLevel}`);
   }
 
-  const loggerBackend =
-    options.Logger ??
+  const loggerBackend: LoggerBackend =
+    options.logger ??
     ((level, ...data: unknown[]) => {
-      console.log(`[${LogLevel[level]}]`, ...data);
+      console.log(`[${level}]`, ...data);
     });
 
   const logger = new Logger(logLevel, loggerBackend);
   const eventStore = options.eventStore ?? null;
-  let getLastBlockNumber: RpcClient["getLastBlockNumber"];
-  let getLogs: RpcClient["getLogs"];
+  let rpc: RpcClient;
 
   if ("rpc" in options && "url" in options.rpc) {
     const fetch = options.rpc.fetch ?? globalThis.fetch;
-    const client = createRpcClient(logger, options.rpc.url, fetch);
-    getLastBlockNumber = () => client.getLastBlockNumber();
-    getLogs = (opts) => client.getLogs(opts);
+    rpc = createRpcClient(logger, options.rpc.url, fetch);
   } else if ("rpc" in options && "getLastBlockNumber" in options.rpc) {
-    getLastBlockNumber = options.rpc.getLastBlockNumber;
-    getLogs = options.rpc.getLogs;
+    rpc = {
+      getLastBlockNumber: options.rpc.getLastBlockNumber,
+      getLogs: options.rpc.getLogs,
+      readContract: options.rpc.readContract,
+    };
   } else {
-    throw new Error("Invalid RPC options");
+    throw new Error("Invalid RPC options, please provide a URL or a client");
   }
 
   let state: IndexerState = {
-    type: "stopped",
+    type: "initial",
   };
 
   const contracts = options.contracts;
   const subscriptions: Subscription[] = [];
-  const eventQueue: BaseEvent[] = [];
-
-  if (options.subscriptionStore) {
-    const storedSubscriptions = await options.subscriptionStore.all();
-
-    for (const subscription of storedSubscriptions) {
-      subscribeToContract({
-        id: subscription.id,
-        name: subscription.contractName,
-        address: subscription.contractAddress,
-        fromBlock: subscription.indexedToBlock,
-        fromLogIndex: subscription.indexedToLogIndex,
-        toBlock: subscription.toBlock,
-      });
-    }
-
-    logger.info("Loaded", subscriptions.length, "subscriptions from store");
-  }
-
-  // add initial subscriptions only if none were loaded from storage
-  if (subscriptions.length === 0) {
-    for (const contract of contracts) {
-      // contract is bound to an address, subscribe to it
-      if (contract.address) {
-        subscribeToContract({
-          name: contract.name,
-          address: contract.address,
-          fromBlock: contract.fromBlock,
-          toBlock: contract.toBlock,
-        });
-      }
-    }
-  }
+  const eventQueue: Event[] = [];
 
   async function poll() {
     if (state.type !== "running") {
       return;
     }
 
-    function schedule() {
+    function schedule(delay = eventPollIntervalMs) {
       if (state.type === "running") {
-        state.pollTimeout = setTimeout(poll, eventPollIntervalMs);
+        state.pollTimeout = setTimeout(poll, delay);
       }
     }
 
     try {
-      let lastBlock = await getLastBlockNumber();
-      const subscriptionCount = subscriptions.length;
+      let targetBlock: bigint;
 
-      // do not index beyond the target block
-      if (state.targetBlock !== "latest" && lastBlock > state.targetBlock) {
-        lastBlock = state.targetBlock;
+      if (state.targetBlock === "latest") {
+        targetBlock = await rpc.getLastBlockNumber();
+      } else {
+        targetBlock = state.targetBlock;
       }
 
-      // only work with subscriptions that index to latest or beyond the last block,
-      // and that have not yet indexed to the last block
-      const activeSubscriptions = subscriptions.filter((sub) => {
-        return (
-          (sub.toBlock === "latest" || sub.toBlock >= lastBlock) &&
-          sub.indexedToBlock < lastBlock
-        );
+      const totalSubscriptionCount = subscriptions.length;
+
+      const fetchedSubscriptionIds = await fetchSubscriptions({
+        targetBlock,
+        subscriptions,
+        rpc,
+        eventStore,
+        pushEvent(event) {
+          eventQueue.push(event);
+        },
+        logger,
       });
 
-      // contract address => event topic => index
-      const subscriptionMap = new Map<Hex, Map<Hex, number>>();
+      for (const id of fetchedSubscriptionIds) {
+        const subscription = subscriptions.find((sub) => sub.id === id);
 
-      for (let i = 0; i < activeSubscriptions.length; i++) {
-        const subscription = activeSubscriptions[i];
-
-        if (!subscriptionMap.has(subscription.contractAddress)) {
-          subscriptionMap.set(subscription.contractAddress, new Map());
+        if (subscription === undefined) {
+          throw new Error(`Could not find subscription with id ${id}`);
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-        const eventMap = subscriptionMap.get(subscription.contractAddress)!;
-
-        if (!eventMap.has(subscription.topic)) {
-          eventMap.set(subscription.topic, i);
-        }
-      }
-
-      // fromBlock => toBlock => contract address => topics
-      const fetchRequests = new Map<bigint, Map<bigint, Map<Hex, Hex[]>>>();
-
-      // group subscriptions by fromBlock and toBlock to reduce the number of
-      // requests to the RPC endpoint
-      for (const subscription of activeSubscriptions) {
-        let toBlock = lastBlock;
-
-        if (subscription.toBlock !== "latest") {
-          toBlock = subscription.toBlock;
-        }
-
-        // continue fetching from the last fetched block
-        let fetchFromBlock = subscription.fetchedToBlock + 1n;
-
-        // fetch from the latest indexed block if we have indexed but not fetched
-        if (fetchFromBlock < subscription.indexedToBlock) {
-          fetchFromBlock = subscription.indexedToBlock + 1n;
-        }
-
-        if (eventStore) {
-          // fetch events from the event store
-          const storedEvents = await eventStore.getEvents({
-            address: subscription.contractAddress,
-            topic: subscription.topic,
-            fromBlock: fetchFromBlock,
-            toBlock: lastBlock,
-          });
-
-          for (const event of storedEvents) {
-            eventQueue.push(event);
-          }
-
-          // if there are stored events, fetch from the block after the last
-          // stored event
-          if (storedEvents.length > 0) {
-            fetchFromBlock =
-              storedEvents[storedEvents.length - 1].blockNumber + 1n;
-            subscription.fetchedToBlock = fetchFromBlock;
-          }
-        }
-
-        const fromMap = fetchRequests.get(fetchFromBlock) ?? new Map();
-        const toMap = fromMap.get(toBlock) ?? new Map();
-        const topics = toMap.get(subscription.contractAddress) ?? [];
-
-        topics.push(subscription.topic);
-        toMap.set(subscription.contractAddress, topics);
-        fromMap.set(toBlock, toMap);
-        fetchRequests.set(fetchFromBlock, fromMap);
-      }
-
-      for (const [startBlock, innerMap] of fetchRequests) {
-        for (const [toBlock, addressesTopics] of innerMap) {
-          let currentBlock = startBlock;
-
-          const addresses = Array.from(addressesTopics.keys());
-          const topics = Array.from(addressesTopics.values()).flat();
-
-          let steps = 1n;
-
-          while (currentBlock <= toBlock) {
-            try {
-              const toBlock = currentBlock + (lastBlock - currentBlock) / steps;
-
-              logger.trace("Fetching events", currentBlock, "to", toBlock);
-
-              const logs = await getLogs({
-                address: addresses,
-                fromBlock: currentBlock,
-                toBlock: toBlock,
-                topics: [topics],
-              });
-
-              logger.trace("Fetched new", logs.length, "events");
-
-              for (const log of logs) {
-                const subscriptionIndex = subscriptionMap
-                  .get(log.address)
-                  ?.get(log.topics[0]);
-
-                if (subscriptionIndex === undefined) {
-                  continue;
-                }
-
-                const subscription = activeSubscriptions[subscriptionIndex];
-
-                const parsedEvent = decodeEventLog({
-                  abi: subscription.abi,
-                  data: log.data,
-                  topics: log.topics,
-                });
-
-                if (
-                  log.transactionHash === null ||
-                  log.blockNumber === null ||
-                  log.logIndex === null
-                ) {
-                  throw new Error("Event is still pending");
-                }
-
-                const blockNumber = fromHex(log.blockNumber, "bigint");
-
-                const event: BaseEvent = {
-                  name: subscription.eventName,
-                  params: parsedEvent.args,
-                  address: log.address,
-                  topic: log.topics[0],
-                  transactionHash: log.transactionHash,
-                  blockNumber: blockNumber,
-                  logIndex: fromHex(log.logIndex, "number"),
-                };
-
-                if (eventStore) {
-                  await eventStore.insert(event);
-                }
-
-                eventQueue.push(event);
-
-                subscription.fetchedToBlock = blockNumber;
-              }
-
-              currentBlock = toBlock + 1n;
-
-              // range successfully fetched, fetch wider range
-              steps = steps / 2n;
-              if (steps < 1n) {
-                steps = 1n;
-              }
-            } catch (error) {
-              if (error instanceof JsonRpcRangeTooWideError) {
-                // range too wide, split in half and retry
-                steps = steps * 2n;
-                continue;
-              }
-
-              throw error;
-            }
-          }
-        }
+        subscription.fetchedToBlock = targetBlock;
       }
 
       // sort by block number and log index ascending
+      // TODO: priority queue
       eventQueue.sort((a, b) => {
         if (a.blockNumber < b.blockNumber) {
           return -1;
@@ -382,37 +688,33 @@ export async function createIndexer(options: Options): Promise<Indexer> {
         return 0;
       });
 
-      if (eventQueue.length > 0) {
-        logger.trace("Applying", eventQueue.length, "events");
-      }
+      // if (eventQueue.length > 0) {
+      //   logger.trace(`Applying ${eventQueue.length} events`);
+      // }
 
-      if (options.onProgress) {
-        const currentBlock = activeSubscriptions.reduce((acc, sub) => {
-          if (sub.indexedToBlock < acc) {
-            return sub.indexedToBlock;
-          }
-          return acc;
-        }, lastBlock);
+      let event = null;
 
-        options.onProgress({
-          currentBlock,
-          lastBlock: lastBlock,
-          pendingEventsCount: eventQueue.length,
-        });
-      }
+      // global indexedToBlock is the minimum of all subscriptions
+      let indexedToBlock: bigint = subscriptions.reduce((acc, sub) => {
+        if (sub.indexedToBlock < acc) {
+          return sub.indexedToBlock;
+        }
+        return acc;
+      }, subscriptions[0].indexedToBlock);
 
-      while (eventQueue.length > 0) {
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-        const event = eventQueue.shift()!;
+      const subscriptionIndex = subscriptions.reduce((acc, sub) => {
+        acc[`${sub.contractAddress}:${sub.topic}`] = sub;
+        return acc;
+      }, {} as Record<string, Subscription>);
 
-        const index = subscriptionMap.get(event.address)?.get(event.topic);
+      while ((event = eventQueue.shift())) {
+        const subscription =
+          subscriptionIndex[`${event.address}:${event.topic}`];
 
         // should not happen
-        if (index === undefined) {
-          throw new Error("Subscription not found");
+        if (subscription === undefined) {
+          throw new Error(`Subscription not found ${event.topic}`);
         }
-
-        const subscription = activeSubscriptions[index];
 
         if (
           event.blockNumber === subscription.indexedToBlock &&
@@ -427,29 +729,80 @@ export async function createIndexer(options: Options): Promise<Indexer> {
         }
 
         try {
-          await subscription.eventHandler(event);
+          const eventHandlerArgs = {
+            event,
+            context: options.context,
+            readContract,
+            subscribeToContract,
+          };
 
-          if (options.onEvent) {
-            await options.onEvent(event);
+          if (subscription.eventHandler !== undefined) {
+            await subscription.eventHandler(eventHandlerArgs);
+          }
+
+          if (options.onEvent !== undefined) {
+            await options.onEvent(eventHandlerArgs);
           }
         } catch (err) {
-          logger.error("Error applying event", err);
+          logger.error({ message: "Error applying event", err, event });
+          throw err;
         }
 
         subscription.indexedToBlock = event.blockNumber;
         subscription.indexedToLogIndex = event.logIndex;
 
+        // report progress when we start a new block
+        if (indexedToBlock !== event.blockNumber) {
+          if (options.onProgress) {
+            options.onProgress({
+              currentBlock: indexedToBlock,
+              targetBlock: targetBlock,
+              pendingEventsCount: eventQueue.length,
+            });
+          }
+        }
+
+        indexedToBlock = event.blockNumber;
+
         // new subscriptions were added while processing
-        if (subscriptions.length > subscriptionCount) {
-          schedule();
+        if (subscriptions.length > totalSubscriptionCount) {
+          for (const id of fetchedSubscriptionIds) {
+            const subscription = subscriptions.find((sub) => sub.id === id);
+
+            if (subscription === undefined) {
+              continue;
+            }
+
+            subscription.indexedToBlock = event.blockNumber;
+            subscription.indexedToLogIndex = event.logIndex;
+          }
+
+          schedule(0);
+          return;
         }
       }
 
-      logger.trace("Indexed to block", lastBlock);
+      for (const id of fetchedSubscriptionIds) {
+        const subscription = subscriptions.find((sub) => sub.id === id);
 
-      if (options.onUpdate) {
-        options.onUpdate(lastBlock);
+        if (subscription === undefined) {
+          continue;
+        }
+
+        subscription.indexedToBlock = targetBlock;
+        subscription.indexedToLogIndex = 0;
       }
+
+      // report progress when we reach the target block
+      if (options.onProgress) {
+        options.onProgress({
+          currentBlock: targetBlock,
+          targetBlock: targetBlock,
+          pendingEventsCount: eventQueue.length,
+        });
+      }
+
+      logger.trace(`Indexed to block ${targetBlock}`);
 
       if (options.subscriptionStore) {
         for (const subscription of subscriptions) {
@@ -457,6 +810,7 @@ export async function createIndexer(options: Options): Promise<Indexer> {
             id: subscription.id,
             contractName: subscription.contractName,
             contractAddress: subscription.contractAddress,
+            fromBlock: subscription.fromBlock,
             indexedToBlock: subscription.indexedToBlock,
             indexedToLogIndex: subscription.indexedToLogIndex,
             toBlock: subscription.toBlock,
@@ -466,7 +820,7 @@ export async function createIndexer(options: Options): Promise<Indexer> {
         }
       }
 
-      if (state.targetBlock !== "latest" && lastBlock === state.targetBlock) {
+      if (state.targetBlock !== "latest" && targetBlock === state.targetBlock) {
         logger.trace("Reached indexing target block");
         stop();
         return;
@@ -479,53 +833,69 @@ export async function createIndexer(options: Options): Promise<Indexer> {
     }
   }
 
-  function subscribeToContract(subscribeOptions: CreateSubscriptionOptions) {
-    const contractName = subscribeOptions.name;
-    const contract = contracts.find((c) => c.name === contractName);
-    const id = subscribeOptions.id ?? uuidv4();
+  function subscribeToContract(
+    subscribeOptions: CreateSubscriptionOptions<keyof TAbis>
+  ) {
+    const { contract: contractName, address } = subscribeOptions;
+    const contract = contracts[contractName];
 
     if (!contract) {
-      throw new Error(`Contract ${contractName} not found`);
+      throw new Error(`Contract ${String(contractName)} not found`);
     }
 
-    logger.trace("Subscribing to", contractName, subscribeOptions.address);
+    logger.trace(
+      `Subscribing to ${String(contractName)} ${
+        subscribeOptions.address
+      } from ${subscribeOptions.fromBlock ?? 0}`
+    );
 
-    for (const eventName in contract.handlers) {
-      const eventHandler = contract.handlers[eventName];
+    if (contract.handlers === undefined) {
+      return;
+    }
 
-      const eventAbi = getAbiItem({
+    let eventName: keyof typeof contract.handlers;
+    for (eventName in contract.handlers) {
+      const eventHandler =
+        contract.handlers[eventName as keyof typeof contract.handlers];
+
+      const eventAbi = getAbiItem<Abi, string>({
         abi: contract.abi,
         name: eventName,
       });
 
       if (eventAbi.type !== "event") {
         throw new Error(
-          `Expected ${eventName} in ${contract.name} to be an event`
+          `Expected ${eventName} in ${String(contractName)} to be an event`
         );
       }
 
-      const topics = encodeEventTopics({
+      const topics = encodeEventTopics<Abi, string>({
         abi: contract.abi,
         eventName,
       });
 
-      if (topics.length === 0) {
+      if (topics.length !== 1) {
         throw new Error(`Failed to encode event topics for ${eventName}`);
       }
 
       const topic = topics[0];
 
+      const id = `${address.toLowerCase()}:${topic}`;
+
+      const fromBlock = subscribeOptions.fromBlock ?? 0n;
+
       const subscription: Subscription = {
         id: id,
         abi: [eventAbi],
-        contractName,
-        contractAddress: subscribeOptions.address.toLowerCase() as Hex,
+        contractName: String(contractName),
+        contractAddress: address.toLowerCase() as Hex,
         eventName,
-        eventHandler: eventHandler as (event: BaseEvent) => Promise<void>,
+        eventHandler: eventHandler as unknown as EventHandler<Abi>,
         topic,
         eventAbi,
-        indexedToBlock: subscribeOptions.fromBlock ?? -1n,
+        fromBlock: fromBlock,
         toBlock: subscribeOptions.toBlock ?? "latest",
+        indexedToBlock: subscribeOptions.indexedToBlock ?? fromBlock - 1n,
         fetchedToBlock: -1n,
         indexedToLogIndex: 0,
       };
@@ -534,12 +904,64 @@ export async function createIndexer(options: Options): Promise<Indexer> {
     }
   }
 
-  function indexToBlock(target: ToBlock): Promise<void> {
-    if (state.type !== "stopped") {
+  async function init() {
+    if (options.subscriptionStore) {
+      const storedSubscriptions = await options.subscriptionStore.all();
+
+      for (const subscription of storedSubscriptions) {
+        subscribeToContract({
+          contract: subscription.contractName as keyof TAbis,
+          id: subscription.id,
+          address: subscription.contractAddress,
+          indexedToBlock: subscription.indexedToBlock,
+          fromBlock: subscription.fromBlock,
+          fromLogIndex: subscription.indexedToLogIndex,
+          toBlock: subscription.toBlock,
+        });
+      }
+
+      logger.info(`Loaded ${subscriptions.length} subscriptions from store`);
+    }
+
+    // add initial subscriptions only if none were loaded from storage
+    if (subscriptions.length === 0) {
+      for (const contractName in contracts) {
+        const contract = contracts[contractName];
+
+        if (contract.subscriptions === undefined) {
+          continue;
+        }
+
+        const sources = [];
+
+        if (Array.isArray(contract.subscriptions)) {
+          sources.push(...contract.subscriptions);
+        } else {
+          sources.push(contract.subscriptions);
+        }
+
+        for (const source of sources) {
+          subscribeToContract({
+            contract: contractName,
+            address: source.address,
+            fromBlock: source.fromBlock,
+            toBlock: source.toBlock,
+          });
+        }
+      }
+    }
+  }
+
+  async function indexToBlock(target: ToBlock): Promise<void> {
+    if (state.type === "initial") {
+      await init();
+    }
+
+    if (state.type === "running") {
       throw new Error("Indexer is already running");
     }
 
-    logger.debug("Indexing to block", target);
+    logger.debug(`Indexing to block ${target}`);
 
     return new Promise((resolve, reject) => {
       state = {
@@ -567,17 +989,89 @@ export async function createIndexer(options: Options): Promise<Indexer> {
     };
   }
 
+  async function readContract<
+    TContractName extends keyof TAbis,
+    TAbi extends Abi = TAbis[TContractName],
+    TFunctionName extends ExtractAbiFunctionNames<
+      TAbi,
+      "pure" | "view"
+    > = ExtractAbiFunctionNames<TAbi, "pure" | "view">,
+    TAbiFunction extends AbiFunction = ExtractAbiFunction<TAbi, TFunctionName>,
+    TReturn = AbiParametersToPrimitiveTypes<TAbiFunction["outputs"], "outputs">
+  >(args: {
+    contract: TContractName | keyof TAbis;
+    address: Hex;
+    functionName:
+      | TFunctionName
+      | ExtractAbiFunctionNames<TAbi, "pure" | "view">;
+    args?: AbiParametersToPrimitiveTypes<TAbiFunction["inputs"], "inputs">;
+    blockNumber: bigint;
+  }): Promise<TReturn extends readonly [infer inner] ? inner : TReturn> {
+    const contract = contracts[args.contract];
+
+    if (contract === undefined) {
+      throw new Error(`Contract ${String(args.contract)} not found`);
+    }
+
+    const data = encodeFunctionData({
+      abi: contract.abi as Abi,
+      functionName: args.functionName as string,
+      args: args.args as unknown[],
+    });
+
+    let result: Hex;
+
+    if (eventStore) {
+      const cachedRead = await eventStore.getContractRead({
+        address: args.address,
+        blockNumber: args.blockNumber,
+        functionName: args.functionName,
+        data: data,
+      });
+
+      if (cachedRead !== null) {
+        result = cachedRead;
+      }
+    }
+
+    result = await rpc.readContract({
+      functionName: args.functionName,
+      data: data,
+      address: args.address,
+      blockNumber: args.blockNumber,
+    });
+
+    if (eventStore) {
+      await eventStore.insertContractRead({
+        address: args.address,
+        blockNumber: args.blockNumber,
+        functionName: args.functionName,
+        data: data,
+        result,
+      });
+    }
+
+    return decodeFunctionResult({
+      abi: contract.abi as Abi,
+      functionName: args.functionName as string,
+      data: result,
+    }) as TReturn extends readonly [infer inner] ? inner : TReturn;
+  }
+
   return {
+    context: options.context,
     subscribeToContract,
     stop,
 
-    start: async () => {
+    readContract,
+
+    async watch() {
       return await indexToBlock("latest");
     },
 
-    indexToBlock: async (target: ToBlock) => {
+    async indexToBlock(target: ToBlock) {
       if (target === "latest") {
-        const lastBlock = await getLastBlockNumber();
+        const lastBlock = await rpc.getLastBlockNumber();
         return await indexToBlock(lastBlock);
       }
 

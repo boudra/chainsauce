@@ -7,7 +7,11 @@ export enum LogLevel {
   error,
 }
 
-export type LoggerBackend = (level: LogLevel, ...data: unknown[]) => void;
+export type LoggerBackend = (
+  level: keyof typeof LogLevel,
+  data: unknown,
+  message?: string
+) => void;
 
 export class Logger {
   private logLevel: LogLevel;
@@ -23,31 +27,31 @@ export class Logger {
     this.backend = backend;
   }
 
-  debug(...data: unknown[]) {
-    this.log(LogLevel.debug, ...data);
+  error(data: unknown, message?: string) {
+    this.log(LogLevel.error, data, message);
   }
 
-  trace(...data: unknown[]) {
-    this.log(LogLevel.trace, ...data);
+  warn(data: unknown, message?: string) {
+    this.log(LogLevel.warn, data, message);
   }
 
-  info(...data: unknown[]) {
-    this.log(LogLevel.info, ...data);
+  info(data: unknown, message?: string) {
+    this.log(LogLevel.info, data, message);
   }
 
-  warn(...data: unknown[]) {
-    this.log(LogLevel.warn, ...data);
+  trace(data: unknown, message?: string) {
+    this.log(LogLevel.trace, data, message);
   }
 
-  error(...data: unknown[]) {
-    this.log(LogLevel.error, ...data);
+  debug(data: unknown, message?: string) {
+    this.log(LogLevel.debug, data, message);
   }
 
-  log(level: LogLevel, ...data: unknown[]) {
+  log(level: LogLevel, data: unknown, message?: string) {
     if (level < this.logLevel) {
       return;
     }
 
-    this.backend(level, ...data);
+    this.backend(LogLevel[level] as keyof typeof LogLevel, data, message);
   }
 }

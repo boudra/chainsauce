@@ -58,6 +58,12 @@ export interface RpcClient {
     fromBlock: bigint;
     toBlock: ToBlock;
   }): Promise<Log[]>;
+  readContract(args: {
+    functionName: string;
+    address: Hex;
+    data: Hex;
+    blockNumber: bigint;
+  }): Promise<Hex>;
 }
 
 export function createRpcClient(
@@ -162,6 +168,34 @@ export function createRpcClient(
           const response = await rpcCall<string>("eth_blockNumber", []);
 
           return BigInt(response);
+        },
+        {
+          maxRetries: 5,
+          onRetry: () => {
+            return;
+          },
+          delay: 1000,
+        }
+      );
+    },
+
+    async readContract(args: {
+      functionName: string;
+      address: Hex;
+      data: Hex;
+      blockNumber: bigint;
+    }): Promise<Hex> {
+      return retry(
+        async () => {
+          const blockNumber = `0x${args.blockNumber.toString(16)}`;
+
+          return await rpcCall<Hex>("eth_call", [
+            {
+              to: args.address,
+              data: args.data,
+            },
+            blockNumber,
+          ]);
         },
         {
           maxRetries: 5,

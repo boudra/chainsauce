@@ -1,10 +1,11 @@
 {
-  "include": ["src/**/*", "test/**/*"],
+  "include": ["src/**/*"],
   "compilerOptions": {
     "target": "ESNext",
     "module": "ESNext",
     "esModuleInterop": true,
     "moduleResolution": "node",
+    "sourceMap": true,
     "declaration": true,
     "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true,
@@ -19,5 +20,8 @@
   "exclude": [
     "node_modules",
     "dist"
-  ]
+  ],
+  "tsc-alias": {
+  "resolveFullPaths": true
+  }
 }

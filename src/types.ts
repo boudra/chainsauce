@@ -1,29 +1,46 @@
 import { Abi, ExtractAbiEventNames } from "abitype";
 import { GetEventArgs } from "viem";
+import type { Indexer } from "@/index";
 
 export type Hex = `0x${string}`;
 
-export type EventHandler<T extends Abi, N extends ExtractAbiEventNames<T>> = (
+export type EventHandler<
+  TAbi extends Abi,
+  N extends ExtractAbiEventNames<TAbi> = ExtractAbiEventNames<TAbi>,
+  TContext = unknown,
+  TAbis extends Record<string, Abi> = Record<string, Abi>
+> = (args: {
+  context: TContext;
+  readContract: Indexer<TAbis, TContext>["readContract"];
+  subscribeToContract: Indexer<TAbis, TContext>["subscribeToContract"];
   event: BaseEvent<
     N,
     GetEventArgs<
-      T,
+      TAbi,
       N,
       { EnableUnion: false; IndexedOnly: false; Required: true }
     >
-  >
-) => void;
+  >;
+}) => Promise<void>;
 
-export type EventHandlers<T extends Abi, N extends ExtractAbiEventNames<T>> = {
-  [K in N]: EventHandler<T, K>;
+export type EventHandlers<
+  TAbi extends Abi,
+  N extends ExtractAbiEventNames<TAbi> = ExtractAbiEventNames<TAbi>,
+  TContext = unknown,
+  TAbis extends Record<string, Abi> = Record<string, Abi>
+> = {
+  [K in N]: EventHandler<TAbi, K, TContext, TAbis>;
 };
 
-export type Event<T extends Abi, N extends ExtractAbiEventNames<T>> = BaseEvent<
+export type Event<
+  T extends Abi = Abi,
+  N extends ExtractAbiEventNames<T> = ExtractAbiEventNames<T>
+> = BaseEvent<
   N,
   GetEventArgs<T, N, { EnableUnion: false; IndexedOnly: false; Required: true }>
 >;
 
-export type BaseEvent<N = string, P = Record<string, unknown>> = {
+type BaseEvent<N = string, P = Record<string, unknown>> = {
   name: N;
   params: P;
   address: Hex;
