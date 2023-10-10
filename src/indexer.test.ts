@@ -4,7 +4,8 @@ import { buildIndexer, ToBlock, Hex, Log, Event } from "@/index";
 import { createInMemoryCache } from "@/cache";
 import { createSqliteSubscriptionStore } from "@/subscriptionStore";
 import { RpcClient } from "@/rpc";
-import { encodeEventTopics, zeroAddress } from "viem";
+import { Abi, encodeEventTopics, zeroAddress } from "viem";
+import { ExtractAbiEventNames, Narrow } from "abitype";
 
 const counterABI = [
   {
@@ -201,9 +202,9 @@ describe("index ERC20 contract", () => {
         contract: "Counter",
         address: "0x0000000000000000000000000000000000000002",
       })
-      .addEventHandlers({
+      .addEventListeners({
         contract: "Counter",
-        handlers: {
+        events: {
           Increment: handleIncrement,
           Decrement: handleDecrement,
         },
@@ -255,9 +256,9 @@ describe("index ERC20 contract", () => {
         contract: "Counter",
         address: "0x0000000000000000000000000000000000000002",
       })
-      .addEventHandlers({
+      .addEventListeners({
         contract: "Counter",
-        handlers: {
+        events: {
           Increment: handleIncrement,
           Decrement: handleDecrement,
         },
@@ -285,9 +286,9 @@ describe("index ERC20 contract", () => {
         contract: "Counter",
         address: "0x0000000000000000000000000000000000000002",
       })
-      .addEventHandlers({
+      .addEventListeners({
         contract: "Counter",
-        handlers: {
+        events: {
           Increment: handleIncrement,
           Decrement: handleDecrement,
         },
@@ -329,9 +330,9 @@ describe("index ERC20 contract", () => {
         contract: "Counter",
         address: "0x0000000000000000000000000000000000000002",
       })
-      .addEventHandlers({
+      .addEventListeners({
         contract: "Counter",
-        handlers: {
+        events: {
           Increment: handleIncrement,
           Decrement: handleDecrement,
         },
@@ -368,9 +369,9 @@ describe("index ERC20 contract", () => {
         contract: "Counter",
         address: "0x0000000000000000000000000000000000000002",
       })
-      .addEventHandlers({
+      .addEventListeners({
         contract: "Counter",
-        handlers: {
+        events: {
           Increment: handleIncrement,
           Decrement: handleDecrement,
         },
@@ -403,9 +404,9 @@ describe("index ERC20 contract", () => {
           contract: "Counter",
           address: "0x0000000000000000000000000000000000000002",
         })
-        .addEventHandlers({
+        .addEventListeners({
           contract: "Counter",
-          handlers: {
+          events: {
             Increment: handleIncrement,
             Decrement: handleDecrement,
           },
@@ -443,9 +444,9 @@ describe("index ERC20 contract", () => {
         .chain({ name: "test", id: 1, rpc: rpcClient })
         .subscriptionStore(subscriptionStore)
         .contracts(Contracts)
-        .addEventHandlers({
+        .addEventListeners({
           contract: "Counter",
-          handlers: {
+          events: {
             Increment: handleIncrement,
             Decrement: handleDecrement,
           },

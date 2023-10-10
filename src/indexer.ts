@@ -1,10 +1,4 @@
-import { Abi, ExtractAbiEventNames } from "abitype";
-import {
-  AbiFunction,
-  AbiParametersToPrimitiveTypes,
-  ExtractAbiFunction,
-  ExtractAbiFunctionNames,
-} from "abitype";
+import { Abi, ExtractAbiEventNames, ExtractAbiFunctionNames } from "abitype";
 import {
   decodeFunctionResult,
   encodeEventTopics,
@@ -15,7 +9,16 @@ import {
 import { createRpcClient, RpcClient } from "@/rpc";
 import { Cache } from "@/cache";
 import { Logger, LoggerBackend, LogLevel } from "@/logger";
-import { Hex, ToBlock, EventHandler, Event, Contract } from "@/types";
+import {
+  Hex,
+  ToBlock,
+  EventHandler,
+  Event,
+  Contract,
+  ReadContractParameters,
+  ReadContractReturn,
+  EventHandlerArgs,
+} from "@/types";
 import { SubscriptionStore } from "@/subscriptionStore";
 import {
   Subscription,
@@ -26,26 +29,34 @@ import {
   getSubscriptionEvents,
 } from "@/subscriptions";
 
-export type ContractsFromAbis<TAbis extends Record<string, Abi>> = {
+export type Contracts<TAbis extends Record<string, Abi>> = {
   [K in keyof TAbis]: Contract<TAbis[K]>;
 };
-export type UserEventHandler<T, TAbiName, TEventName> = T extends Indexer<
-  infer TAbis,
-  infer TContext
->
-  ? TAbiName extends keyof TAbis
-    ? TEventName extends ExtractAbiEventNames<TAbis[TAbiName]>
-      ? EventHandler<TAbis[TAbiName], TEventName, TContext, TAbis>
-      : never
-    : never
+
+type ExtractAbis<T> = T extends Indexer<infer Abis> ? Abis : never;
+type ExtractContext<T> = T extends Indexer<infer _abis, infer TContext>
+  ? TContext
   : never;
+
+export type UserEventHandlerArgs<
+  T extends Indexer,
+  TAbiName extends keyof ExtractAbis<T> = keyof ExtractAbis<T>,
+  TEventName extends ExtractAbiEventNames<
+    ExtractAbis<T>[TAbiName]
+  > = ExtractAbiEventNames<ExtractAbis<T>[TAbiName]>
+> = EventHandlerArgs<
+  ExtractAbis<T>,
+  ExtractContext<T>,
+  ExtractAbis<T>[TAbiName],
+  TEventName
+>;
 
 export type Config<TAbis extends Record<string, Abi>, TContext = unknown> = {
   logLevel?: keyof typeof LogLevel;
   logger?: LoggerBackend;
-  eventPollIntervalMs?: number;
+  eventPollDelayMs?: number;
   context: TContext;
-  contracts: ContractsFromAbis<TAbis>;
+  contracts: Contracts<TAbis>;
   chain: {
     name: string;
     id: number;
@@ -56,6 +67,7 @@ export type Config<TAbis extends Record<string, Abi>, TContext = unknown> = {
     targetBlock: bigint;
     pendingEventsCount: number;
   }) => void;
+  onEvent?: EventHandler<TAbis, TContext>;
   cache?: Cache;
   subscriptionStore?: SubscriptionStore;
 };
@@ -85,22 +97,16 @@ export interface Indexer<
 
   readContract<
     TContractName extends keyof TAbis,
-    TAbi extends Abi = TAbis[TContractName],
     TFunctionName extends ExtractAbiFunctionNames<
-      TAbi,
+      TAbis[TContractName],
       "pure" | "view"
-    > = ExtractAbiFunctionNames<TAbi, "pure" | "view">,
-    TAbiFunction extends AbiFunction = ExtractAbiFunction<TAbi, TFunctionName>,
-    TReturn = AbiParametersToPrimitiveTypes<TAbiFunction["outputs"], "outputs">
-  >(args: {
-    contract: TContractName | keyof TAbis;
-    address: Hex;
-    functionName:
-      | TFunctionName
-      | ExtractAbiFunctionNames<TAbi, "pure" | "view">;
-    args?: AbiParametersToPrimitiveTypes<TAbiFunction["inputs"], "inputs">;
-    blockNumber: bigint;
-  }): Promise<TReturn extends readonly [infer inner] ? inner : TReturn>;
+    >
+  >(
+    args: {
+      contract: TContractName;
+      functionName: TFunctionName;
+    } & ReadContractParameters<TAbis, TContractName>
+  ): Promise<ReadContractReturn<TAbis[TContractName], TFunctionName>>;
 }
 
 type InitialIndexerState = {
@@ -125,10 +131,10 @@ type IndexerState =
   | InitialIndexerState;
 
 export function createIndexer<
-  TContext = unknown,
-  TAbis extends Record<string, Abi> = Record<string, Abi>
+  TAbis extends Record<string, Abi> = Record<string, Abi>,
+  TContext = unknown
 >(config: Config<TAbis, TContext>): Indexer<TAbis, TContext> {
-  const eventPollDelayMs = config.eventPollIntervalMs ?? 4000;
+  const eventPollDelayMs = config.eventPollDelayMs ?? 4000;
   const logLevel: LogLevel = LogLevel[config.logLevel ?? "warn"];
 
   if (logLevel === undefined) {
@@ -208,12 +214,12 @@ export function createIndexer<
         }
 
         try {
-          const eventHandlerArgs: Parameters<EventHandler<Abi>>[0] = {
+          const eventHandlerArgs: Parameters<EventHandler>[0] = {
             event,
             context: config.context,
-            readContract: (opts) => {
+            readContract: (args) => {
               return readContract({
-                ...opts,
+                ...args,
                 blockNumber: event.blockNumber,
               });
             },
@@ -226,7 +232,7 @@ export function createIndexer<
             chainId: config.chain.id,
           };
 
-          if (subscription.eventHandler !== undefined) {
+          if (subscription.eventHandler !== null) {
             await subscription.eventHandler(eventHandlerArgs);
           }
         } catch (err) {
@@ -329,14 +335,30 @@ export function createIndexer<
       } from ${subscribeOptions.fromBlock ?? 0}`
     );
 
-    if (contract.handlers === undefined) {
+    if (contract.events === undefined) {
       return;
     }
 
-    let eventName: keyof typeof contract.handlers;
-    for (eventName in contract.handlers) {
-      const eventHandler =
-        contract.handlers[eventName as keyof typeof contract.handlers];
+    let eventHandlers: Record<string, EventHandler | null>;
+
+    if (Array.isArray(contract.events)) {
+      eventHandlers = contract.events.reduce((acc, eventName) => {
+        acc[eventName as string] = null;
+        return acc;
+      }, {} as typeof eventHandlers);
+    } else {
+      eventHandlers = {};
+
+      for (const name in contract.events) {
+        eventHandlers[name.toString()] =
+          (contract.events[name as keyof typeof contract.events] as
+            | EventHandler
+            | undefined) ?? null;
+      }
+    }
+
+    for (const eventName in eventHandlers) {
+      const eventHandler = eventHandlers[eventName];
 
       const eventAbi = getAbiItem<Abi, string>({
         abi: contract.abi,
@@ -370,7 +392,7 @@ export function createIndexer<
         contractName: String(contractName),
         contractAddress: address,
         eventName,
-        eventHandler: eventHandler as unknown as EventHandler<Abi>,
+        eventHandler: eventHandler,
         topic,
         eventAbi,
         fromBlock: fromBlock,
@@ -471,22 +493,16 @@ export function createIndexer<
 
   async function readContract<
     TContractName extends keyof TAbis,
-    TAbi extends Abi = TAbis[TContractName],
     TFunctionName extends ExtractAbiFunctionNames<
-      TAbi,
+      TAbis[TContractName],
       "pure" | "view"
-    > = ExtractAbiFunctionNames<TAbi, "pure" | "view">,
-    TAbiFunction extends AbiFunction = ExtractAbiFunction<TAbi, TFunctionName>,
-    TReturn = AbiParametersToPrimitiveTypes<TAbiFunction["outputs"], "outputs">
-  >(args: {
-    contract: TContractName | keyof TAbis;
-    address: Hex;
-    functionName:
-      | TFunctionName
-      | ExtractAbiFunctionNames<TAbi, "pure" | "view">;
-    args?: AbiParametersToPrimitiveTypes<TAbiFunction["inputs"], "inputs">;
-    blockNumber: bigint;
-  }): Promise<TReturn extends readonly [infer inner] ? inner : TReturn> {
+    >
+  >(
+    args: {
+      contract: TContractName;
+      functionName: TFunctionName;
+    } & ReadContractParameters<TAbis, TContractName>
+  ): Promise<ReadContractReturn<TAbis[TContractName], TFunctionName>> {
     const contract = contracts[args.contract];
 
     if (contract === undefined) {
@@ -537,7 +553,7 @@ export function createIndexer<
       abi: contract.abi as Abi,
       functionName: args.functionName as string,
       data: result,
-    }) as TReturn extends readonly [infer inner] ? inner : TReturn;
+    }) as ReadContractReturn<TAbis[TContractName], TFunctionName>;
   }
 
   return {

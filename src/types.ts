@@ -11,17 +11,40 @@ import type { CreateSubscriptionOptions } from "@/indexer";
 
 export type Hex = `0x${string}`;
 
-export type EventHandler<
+export type ReadContractParameters<
+  TAbis extends Record<string, Abi>,
+  TContractName extends keyof TAbis,
+  TAbi extends Abi = TAbis[TContractName],
+  TFunctionName extends ExtractAbiFunctionNames<
+    TAbi,
+    "pure" | "view"
+  > = ExtractAbiFunctionNames<TAbi, "pure" | "view">,
+  TAbiFunction extends AbiFunction = ExtractAbiFunction<TAbi, TFunctionName>
+> = {
+  address: Hex;
+  functionName: TFunctionName | ExtractAbiFunctionNames<TAbi, "pure" | "view">;
+  args?: AbiParametersToPrimitiveTypes<TAbiFunction["inputs"], "inputs">;
+  blockNumber: bigint;
+};
+
+export type ReadContractReturn<
   TAbi extends Abi = Abi,
-  N extends ExtractAbiEventNames<TAbi> = ExtractAbiEventNames<TAbi>,
+  TFunctionName extends ExtractAbiFunctionNames<
+    TAbi,
+    "pure" | "view"
+  > = ExtractAbiFunctionNames<TAbi, "pure" | "view">,
+  TAbiFunction extends AbiFunction = ExtractAbiFunction<TAbi, TFunctionName>,
+  TReturn = AbiParametersToPrimitiveTypes<TAbiFunction["outputs"], "outputs">
+> = TReturn extends readonly [infer inner] ? inner : TReturn;
+
+export type EventHandlerArgs<
+  TAbis extends Record<string, Abi> = Record<string, Abi>,
   TContext = unknown,
-  TAbis extends Record<string, Abi> = Record<string, Abi>
-> = (args: {
+  TAbi extends Abi = Abi,
+  N extends ExtractAbiEventNames<TAbi> = ExtractAbiEventNames<TAbi>
+> = {
   context: TContext;
   chainId: number;
-  subscribeToContract: (
-    opts: Omit<CreateSubscriptionOptions<keyof TAbis>, "fromBlock">
-  ) => void;
   event: BaseEvent<
     N,
     GetEventArgs<
@@ -30,33 +53,37 @@ export type EventHandler<
       { EnableUnion: false; IndexedOnly: false; Required: true }
     >
   >;
-
   readContract<
     TContractName extends keyof TAbis,
-    TAbi extends Abi = TAbis[TContractName],
     TFunctionName extends ExtractAbiFunctionNames<
-      TAbi,
+      TAbis[TContractName],
       "pure" | "view"
-    > = ExtractAbiFunctionNames<TAbi, "pure" | "view">,
-    TAbiFunction extends AbiFunction = ExtractAbiFunction<TAbi, TFunctionName>,
-    TReturn = AbiParametersToPrimitiveTypes<TAbiFunction["outputs"], "outputs">
-  >(args: {
-    contract: TContractName | keyof TAbis;
-    address: Hex;
-    functionName:
-      | TFunctionName
-      | ExtractAbiFunctionNames<TAbi, "pure" | "view">;
-    args?: AbiParametersToPrimitiveTypes<TAbiFunction["inputs"], "inputs">;
-  }): Promise<TReturn extends readonly [infer inner] ? inner : TReturn>;
-}) => Promise<void>;
+    >
+  >(
+    args: {
+      contract: TContractName;
+      functionName: TFunctionName;
+    } & Omit<ReadContractParameters<TAbis, TContractName>, "blockNumber">
+  ): Promise<ReadContractReturn<TAbis[TContractName], TFunctionName>>;
+  subscribeToContract: (
+    opts: Omit<CreateSubscriptionOptions<keyof TAbis>, "fromBlock">
+  ) => void;
+};
+
+export type EventHandler<
+  TAbis extends Record<string, Abi> = Record<string, Abi>,
+  TContext = unknown,
+  TAbi extends Abi = TAbis[keyof TAbis],
+  N extends ExtractAbiEventNames<TAbi> = ExtractAbiEventNames<TAbi>
+> = (args: EventHandlerArgs<TAbis, TContext, TAbi, N>) => Promise<void>;
 
 export type EventHandlers<
-  TAbi extends Abi,
-  N extends ExtractAbiEventNames<TAbi> = ExtractAbiEventNames<TAbi>,
+  TAbis extends Record<string, Abi> = Record<string, Abi>,
   TContext = unknown,
-  TAbis extends Record<string, Abi> = Record<string, Abi>
+  TAbi extends Abi = Abi,
+  N extends ExtractAbiEventNames<TAbi> = ExtractAbiEventNames<TAbi>
 > = {
-  [K in N]: EventHandler<TAbi, K, TContext, TAbis>;
+  [K in N]: EventHandler<TAbis, TContext, TAbi, K>;
 };
 
 export type Event<
@@ -91,5 +118,7 @@ export type Contract<
     fromBlock?: bigint;
     toBlock?: ToBlock;
   }[];
-  handlers?: Partial<EventHandlers<TAbi, N, TContext, TAbis>>;
+  events?:
+    | Partial<EventHandlers<TAbis, TContext, TAbi, N>>
+    | ExtractAbiEventNames<TAbi>[];
 };

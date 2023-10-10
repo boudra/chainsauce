@@ -1,5 +1,5 @@
 import {
-  ContractsFromAbis,
+  Contracts,
   CreateSubscriptionOptions,
   Indexer,
   Config,
@@ -27,7 +27,7 @@ export class IndexerBuilder<
   ): IndexerBuilder<TNewContracts, TContext> {
     const contracts = Object.fromEntries(
       Object.entries(abis).map(([name, abi]) => [name, { abi }])
-    ) as ContractsFromAbis<TNewContracts>;
+    ) as Contracts<TNewContracts>;
 
     const newOptions = {
       ...this.options,
@@ -37,16 +37,18 @@ export class IndexerBuilder<
     return new IndexerBuilder(newOptions);
   }
 
-  addEventHandlers<
+  addEventListeners<
     TContractName extends keyof TAbis,
     TEventName extends ExtractAbiEventNames<TAbis[TContractName]>
   >(args: {
     contract: TContractName;
-    handlers: Partial<
-      EventHandlers<TAbis[TContractName], TEventName, TContext, TAbis>
-    >;
+    events:
+      | Partial<
+          EventHandlers<TAbis, TContext, TAbis[TContractName], TEventName>
+        >
+      | ExtractAbiEventNames<TAbis[TContractName]>[];
   }): IndexerBuilder<TAbis, TContext> {
-    const { contract: contractName, handlers } = args;
+    const { contract: contractName, events } = args;
 
     const newOptions = {
       ...this.options,
@@ -54,7 +56,7 @@ export class IndexerBuilder<
         ...(this.options.contracts ?? {}),
         [contractName]: {
           ...(this.options.contracts?.[contractName] ?? {}),
-          handlers: handlers,
+          events,
         },
       },
     } as Config<TAbis, TContext>;
@@ -68,7 +70,7 @@ export class IndexerBuilder<
   >(args: {
     contract: TContractName;
     event: TEventName | ExtractAbiEventNames<TAbis[TContractName]>;
-    handler: EventHandler<TAbis[TContractName], TEventName, TContext, TAbis>;
+    handler: EventHandler<TAbis, TContext, TAbis[TContractName], TEventName>;
   }) {
     const { contract: contractName, event: eventName, handler } = args;
 
@@ -81,7 +83,7 @@ export class IndexerBuilder<
           handlers: {
             // eslint-disable-next-line @typescript-eslint/ban-ts-comment
             // @ts-ignore
-            ...(this.options.contracts?.[contractName]?.handlers ?? {}),
+            ...(this.options.contracts?.[contractName]?.events ?? {}),
             [eventName]: handler,
           },
         },
@@ -117,15 +119,24 @@ export class IndexerBuilder<
   }
 
   eventPollIntervalMs(
-    eventPollIntervalMs: Config<TAbis>["eventPollIntervalMs"]
+    eventPollIntervalMs: Config<TAbis>["eventPollDelayMs"]
   ): IndexerBuilder<TAbis, TContext> {
-    return new IndexerBuilder({ ...this.options, eventPollIntervalMs });
+    return new IndexerBuilder({
+      ...this.options,
+      eventPollDelayMs: eventPollIntervalMs,
+    });
   }
 
   onProgress(
     onProgress: Config<TAbis>["onProgress"]
   ): IndexerBuilder<TAbis, TContext> {
     return new IndexerBuilder({ ...this.options, onProgress });
+  }
+
+  onEvent(
+    onEvent: Config<TAbis, TContext>["onEvent"]
+  ): IndexerBuilder<TAbis, TContext> {
+    return new IndexerBuilder({ ...this.options, onEvent });
   }
 
   cache(cache: Config<TAbis>["cache"]): IndexerBuilder<TAbis, TContext> {
@@ -191,7 +202,7 @@ export class IndexerBuilder<
     const options: Config<TAbis, TContext> = {
       ...this.options,
       chain: this.options.chain,
-      contracts: this.options.contracts ?? ({} as ContractsFromAbis<TAbis>),
+      contracts: this.options.contracts ?? ({} as Contracts<TAbis>),
       context: this.options.context ?? ({} as TContext),
     };
 

@@ -14,7 +14,7 @@ export type Subscription = {
   contractAddress: `0x${string}`;
   topic: `0x${string}`;
   eventName: string;
-  eventHandler?: EventHandler<Abi>;
+  eventHandler: EventHandler | null;
   eventAbi: AbiEvent;
   toBlock: ToBlock;
   fromBlock: bigint;
