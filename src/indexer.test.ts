@@ -45,7 +45,7 @@ const initialBlocks: { number: bigint; logs: Log[] }[] = [
     number: 0n,
     logs: [
       {
-        address: "0x1",
+        address: "0x0000000000000000000000000000000000000001",
         topics: [incrementTopic],
         data: zeroAddress,
         blockNumber: "0x0",
@@ -55,7 +55,7 @@ const initialBlocks: { number: bigint; logs: Log[] }[] = [
         blockHash: "0x123",
       },
       {
-        address: "0x2",
+        address: "0x0000000000000000000000000000000000000002",
         topics: [incrementTopic],
         data: zeroAddress,
         blockNumber: "0x0",
@@ -65,7 +65,7 @@ const initialBlocks: { number: bigint; logs: Log[] }[] = [
         blockHash: "0x123",
       },
       {
-        address: "0x1",
+        address: "0x0000000000000000000000000000000000000001",
         topics: [decrementTopic],
         data: zeroAddress,
         blockNumber: "0x0",
@@ -84,7 +84,7 @@ const initialBlocks: { number: bigint; logs: Log[] }[] = [
     number: 2n,
     logs: [
       {
-        address: "0x1",
+        address: "0x0000000000000000000000000000000000000001",
         topics: [incrementTopic],
         data: zeroAddress,
         blockNumber: "0x2",
@@ -94,7 +94,7 @@ const initialBlocks: { number: bigint; logs: Log[] }[] = [
         blockHash: "0x123",
       },
       {
-        address: "0x1",
+        address: "0x0000000000000000000000000000000000000001",
         topics: [incrementTopic],
         data: zeroAddress,
         blockNumber: "0x2",
@@ -104,7 +104,7 @@ const initialBlocks: { number: bigint; logs: Log[] }[] = [
         blockHash: "0x123",
       },
       {
-        address: "0x2",
+        address: "0x0000000000000000000000000000000000000002",
         topics: [decrementTopic],
         data: zeroAddress,
         blockNumber: "0x2",
@@ -191,15 +191,15 @@ describe("index ERC20 contract", () => {
 
   test("index to latest", async () => {
     const indexer = buildIndexer()
-      .rpc(rpcClient)
+      .chain({ name: "test", id: 1, rpc: rpcClient })
       .contracts(Contracts)
       .addSubscription({
         contract: "Counter",
-        address: "0x1",
+        address: "0x0000000000000000000000000000000000000001",
       })
       .addSubscription({
         contract: "Counter",
-        address: "0x2",
+        address: "0x0000000000000000000000000000000000000002",
       })
       .addEventHandlers({
         contract: "Counter",
@@ -213,14 +213,14 @@ describe("index ERC20 contract", () => {
     await indexer.indexToBlock("latest");
 
     expect(state.counters).toEqual({
-      "0x1": 2n,
-      "0x2": 0n,
+      "0x0000000000000000000000000000000000000001": 2n,
+      "0x0000000000000000000000000000000000000002": 0n,
     });
   });
 
   test("live indexing of new blocks", async () => {
     const indexer = buildIndexer()
-      .rpc(rpcClient)
+      .chain({ name: "test", id: 1, rpc: rpcClient })
       .onProgress(({ currentBlock }) => {
         // when we reach block 1, we add a new block to the chain
         if (currentBlock === 2n) {
@@ -228,7 +228,7 @@ describe("index ERC20 contract", () => {
             number: 3n,
             logs: [
               {
-                address: "0x2",
+                address: "0x0000000000000000000000000000000000000002",
                 topics: [incrementTopic],
                 data: zeroAddress,
                 blockNumber: "0x3",
@@ -249,11 +249,11 @@ describe("index ERC20 contract", () => {
       .contracts(Contracts)
       .addSubscription({
         contract: "Counter",
-        address: "0x1",
+        address: "0x0000000000000000000000000000000000000001",
       })
       .addSubscription({
         contract: "Counter",
-        address: "0x2",
+        address: "0x0000000000000000000000000000000000000002",
       })
       .addEventHandlers({
         contract: "Counter",
@@ -268,22 +268,22 @@ describe("index ERC20 contract", () => {
 
     expect(state.events).toHaveLength(7);
     expect(state.counters).toEqual({
-      "0x1": 2n,
-      "0x2": 1n,
+      "0x0000000000000000000000000000000000000001": 2n,
+      "0x0000000000000000000000000000000000000002": 1n,
     });
   });
 
   test("resumable index with the same indexer instance", async () => {
     const indexer = buildIndexer()
-      .rpc(rpcClient)
+      .chain({ name: "test", id: 1, rpc: rpcClient })
       .contracts(Contracts)
       .addSubscription({
         contract: "Counter",
-        address: "0x1",
+        address: "0x0000000000000000000000000000000000000001",
       })
       .addSubscription({
         contract: "Counter",
-        address: "0x2",
+        address: "0x0000000000000000000000000000000000000002",
       })
       .addEventHandlers({
         contract: "Counter",
@@ -297,15 +297,15 @@ describe("index ERC20 contract", () => {
     await indexer.indexToBlock(0n);
 
     expect(state.counters).toEqual({
-      "0x1": 0n,
-      "0x2": 1n,
+      "0x0000000000000000000000000000000000000001": 0n,
+      "0x0000000000000000000000000000000000000002": 1n,
     });
 
     await indexer.indexToBlock(2n);
 
     expect(state.counters).toEqual({
-      "0x1": 2n,
-      "0x2": 0n,
+      "0x0000000000000000000000000000000000000001": 2n,
+      "0x0000000000000000000000000000000000000002": 0n,
     });
   });
 
@@ -314,16 +314,20 @@ describe("index ERC20 contract", () => {
     const cache = createInMemoryCache();
 
     let indexer = buildIndexer()
-      .rpc({ ...rpcClient, getLogs: getLogsMock })
+      .chain({
+        name: "test",
+        id: 1,
+        rpc: { ...rpcClient, getLogs: getLogsMock },
+      })
       .cache(cache)
       .contracts(Contracts)
       .addSubscription({
         contract: "Counter",
-        address: "0x1",
+        address: "0x0000000000000000000000000000000000000001",
       })
       .addSubscription({
         contract: "Counter",
-        address: "0x2",
+        address: "0x0000000000000000000000000000000000000002",
       })
       .addEventHandlers({
         contract: "Counter",
@@ -337,8 +341,8 @@ describe("index ERC20 contract", () => {
     await indexer.indexToBlock(2n);
 
     expect(state.counters).toEqual({
-      "0x1": 2n,
-      "0x2": 0n,
+      "0x0000000000000000000000000000000000000001": 2n,
+      "0x0000000000000000000000000000000000000002": 0n,
     });
 
     expect(getLogsMock).toHaveBeenCalled();
@@ -349,16 +353,20 @@ describe("index ERC20 contract", () => {
     state.counters = {};
 
     indexer = buildIndexer()
-      .rpc({ ...rpcClient, getLogs: getLogsMock })
+      .chain({
+        name: "test",
+        id: 1,
+        rpc: { ...rpcClient, getLogs: getLogsMock },
+      })
       .cache(cache)
       .contracts(Contracts)
       .addSubscription({
         contract: "Counter",
-        address: "0x1",
+        address: "0x0000000000000000000000000000000000000001",
       })
       .addSubscription({
         contract: "Counter",
-        address: "0x2",
+        address: "0x0000000000000000000000000000000000000002",
       })
       .addEventHandlers({
         contract: "Counter",
@@ -372,8 +380,8 @@ describe("index ERC20 contract", () => {
     await indexer.indexToBlock(2n);
 
     expect(state.counters).toEqual({
-      "0x1": 2n,
-      "0x2": 0n,
+      "0x0000000000000000000000000000000000000001": 2n,
+      "0x0000000000000000000000000000000000000002": 0n,
     });
 
     expect(getLogsMock).toHaveBeenCalledTimes(0);
@@ -384,16 +392,16 @@ describe("index ERC20 contract", () => {
 
     {
       const indexer = buildIndexer()
-        .rpc(rpcClient)
+        .chain({ name: "test", id: 1, rpc: rpcClient })
         .subscriptionStore(subscriptionStore)
         .contracts(Contracts)
         .addSubscription({
           contract: "Counter",
-          address: "0x1",
+          address: "0x0000000000000000000000000000000000000001",
         })
         .addSubscription({
           contract: "Counter",
-          address: "0x2",
+          address: "0x0000000000000000000000000000000000000002",
         })
         .addEventHandlers({
           contract: "Counter",
@@ -407,8 +415,8 @@ describe("index ERC20 contract", () => {
       await indexer.indexToBlock("latest");
 
       expect(state.counters).toEqual({
-        "0x1": 2n,
-        "0x2": 0n,
+        "0x0000000000000000000000000000000000000001": 2n,
+        "0x0000000000000000000000000000000000000002": 0n,
       });
 
       expect(await subscriptionStore.all()).toHaveLength(4);
@@ -419,7 +427,7 @@ describe("index ERC20 contract", () => {
         number: 3n,
         logs: [
           {
-            address: "0x2",
+            address: "0x0000000000000000000000000000000000000002",
             topics: [incrementTopic],
             data: zeroAddress,
             blockNumber: "0x3",
@@ -432,17 +440,9 @@ describe("index ERC20 contract", () => {
       });
 
       const indexer = buildIndexer()
-        .rpc(rpcClient)
+        .chain({ name: "test", id: 1, rpc: rpcClient })
         .subscriptionStore(subscriptionStore)
         .contracts(Contracts)
-        .addSubscription({
-          contract: "Counter",
-          address: "0x1",
-        })
-        .addSubscription({
-          contract: "Counter",
-          address: "0x2",
-        })
         .addEventHandlers({
           contract: "Counter",
           handlers: {
@@ -450,14 +450,22 @@ describe("index ERC20 contract", () => {
             Decrement: handleDecrement,
           },
         })
+        .addSubscription({
+          contract: "Counter",
+          address: "0x0000000000000000000000000000000000000001",
+        })
+        .addSubscription({
+          contract: "Counter",
+          address: "0x0000000000000000000000000000000000000002",
+        })
         .build();
 
       await indexer.indexToBlock("latest");
 
       expect(state.events).toHaveLength(7);
       expect(state.counters).toEqual({
-        "0x1": 2n,
-        "0x2": 1n,
+        "0x0000000000000000000000000000000000000001": 2n,
+        "0x0000000000000000000000000000000000000002": 1n,
       });
     }
   });

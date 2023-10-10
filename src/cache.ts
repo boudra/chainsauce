@@ -3,6 +3,7 @@ import { Event, Hex } from "@/types";
 
 export interface Cache {
   insertEvents(args: {
+    chainId: number;
     events: Event[];
     address: Hex;
     topics: Hex[];
@@ -10,18 +11,21 @@ export interface Cache {
     toBlock: bigint;
   }): Promise<void>;
   getEvents(args: {
+    chainId: number;
     address: Hex;
     topic: Hex;
     fromBlock: bigint;
     toBlock: bigint;
   }): Promise<{ fromBlock: bigint; toBlock: bigint; events: Event[] } | null>;
   getContractRead(args: {
+    chainId: number;
     address: Hex;
     data: Hex;
     functionName: string;
     blockNumber: bigint;
   }): Promise<Hex | null>;
   insertContractRead(args: {
+    chainId: number;
     address: Hex;
     data: Hex;
     functionName: string;
@@ -31,6 +35,7 @@ export interface Cache {
 }
 
 type EventRow = {
+  chainId: number;
   name: string;
   params: string;
   address: Hex;
@@ -70,6 +75,7 @@ export function createSqliteCache(dbPath: string): Cache {
 
   db.exec(`
   CREATE TABLE IF NOT EXISTS events (
+    chainId INTEGER, -- Added chainId column
     name TEXT,
     params TEXT,
     address TEXT,
@@ -77,12 +83,13 @@ export function createSqliteCache(dbPath: string): Cache {
     transactionHash TEXT,
     blockNumber INTEGER,
     logIndex INTEGER,
-    PRIMARY KEY (blockNumber, logIndex)
+    PRIMARY KEY (chainId, blockNumber, logIndex)
   );
 `);
 
   db.exec(`
   CREATE TABLE IF NOT EXISTS logRanges (
+    chainId INTEGER,
     address TEXT,
     topic TEXT,
     fromBlock INTEGER,
@@ -91,30 +98,32 @@ export function createSqliteCache(dbPath: string): Cache {
 `);
 
   db.exec(
-    `CREATE INDEX IF NOT EXISTS idx_address_topic_block
-   ON events (address, topic, blockNumber);`
+    `CREATE INDEX IF NOT EXISTS idx_chain_address_topic_block
+   ON events (chainId, address, topic, blockNumber);`
   );
 
   db.exec(`
   CREATE TABLE IF NOT EXISTS contractReads (
+    chainId INTEGER,
     address TEXT,
     data TEXT,
     functionName TEXT,
     blockNumber INTEGER,
     result TEXT,
-    PRIMARY KEY (address, data, functionName, blockNumber)
+    PRIMARY KEY (chainId, address, data, functionName, blockNumber) -- Updated primary key
   );
 `);
 
   return {
     async insertEvents(args: {
+      chainId: number;
       events: Event[];
       address: Hex;
       topics: Hex[];
       fromBlock: bigint;
       toBlock: bigint;
     }) {
-      const { events, address, topics, fromBlock, toBlock } = args;
+      const { chainId, events, address, topics, fromBlock, toBlock } = args;
 
       if (args.toBlock < args.fromBlock) {
         throw new Error("toBlock must be greater than or equal to fromBlock");
@@ -122,12 +131,13 @@ export function createSqliteCache(dbPath: string): Cache {
 
       const transaction = db.transaction(() => {
         const insertStmt = db.prepare(
-          `INSERT OR REPLACE INTO events (name, params, address, topic, transactionHash, blockNumber, logIndex)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+          `INSERT OR REPLACE INTO events (chainId, name, params, address, topic, transactionHash, blockNumber, logIndex)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
         );
 
         for (const event of events) {
           insertStmt.run(
+            chainId,
             event.name,
             JSON.stringify(event.params, stringify),
             event.address,
@@ -143,10 +153,16 @@ export function createSqliteCache(dbPath: string): Cache {
             .prepare(
               `SELECT fromBlock, toBlock
                FROM logRanges
-               WHERE address = ? AND topic = ?
+               WHERE chainId = ? AND address = ? AND topic = ?
                AND toBlock >= ? - 1 AND fromBlock <= ? + 1`
             )
-            .all(address, topic, Number(fromBlock), Number(toBlock)) as {
+            .all(
+              chainId,
+              address,
+              topic,
+              Number(fromBlock),
+              Number(toBlock)
+            ) as {
             fromBlock: number;
             toBlock: number;
           }[];
@@ -161,14 +177,14 @@ export function createSqliteCache(dbPath: string): Cache {
 
           // Remove old overlapping ranges
           db.prepare(
-            `DELETE FROM logRanges WHERE address = ? AND topic = ? AND fromBlock >= ? AND toBlock <= ?`
-          ).run(address, topic, newFrom, newTo);
+            `DELETE FROM logRanges WHERE chainId = ? AND address = ? AND topic = ? AND fromBlock >= ? AND toBlock <= ?`
+          ).run(chainId, address, topic, newFrom, newTo);
 
           // Insert the new merged range
           db.prepare(
-            `INSERT INTO logRanges (address, topic, fromBlock, toBlock)
-             VALUES (?, ?, ?, ?)`
-          ).run(address, topic, newFrom, newTo);
+            `INSERT INTO logRanges (chainId, address, topic, fromBlock, toBlock)
+             VALUES (?, ?, ?, ?, ?)`
+          ).run(chainId, address, topic, newFrom, newTo);
         }
       });
 
@@ -176,6 +192,7 @@ export function createSqliteCache(dbPath: string): Cache {
     },
 
     async getEvents(args: {
+      chainId: number;
       address: Hex;
       topic: Hex;
       fromBlock: bigint;
@@ -189,11 +206,12 @@ export function createSqliteCache(dbPath: string): Cache {
       const range = db
         .prepare(
           `SELECT fromBlock, toBlock FROM logRanges
-             WHERE address = ? AND topic = ? 
+             WHERE chainId = ? AND address = ? AND topic = ?
                AND ((fromBlock <= ? AND toBlock >= ?) OR (fromBlock <= ? AND toBlock >= ?))
              LIMIT 1`
         )
         .get(
+          args.chainId,
           args.address,
           args.topic,
           Number(args.toBlock),
@@ -212,10 +230,11 @@ export function createSqliteCache(dbPath: string): Cache {
 
         const query = db.prepare(`
         SELECT * FROM events
-        WHERE address = ? AND topic = ? AND blockNumber >= ? AND blockNumber <= ?
+        WHERE chainId = ? AND address = ? AND topic = ? AND blockNumber >= ? AND blockNumber <= ?
         `);
 
         const rows = query.all(
+          args.chainId,
           args.address,
           args.topic,
           fromBlock,
@@ -241,6 +260,7 @@ export function createSqliteCache(dbPath: string): Cache {
     },
 
     async getContractRead(args: {
+      chainId: number;
       address: Hex;
       data: Hex;
       functionName: string;
@@ -248,9 +268,10 @@ export function createSqliteCache(dbPath: string): Cache {
     }): Promise<Hex | null> {
       const row = db
         .prepare(
-          `SELECT result FROM contractReads WHERE address = ? AND data = ? AND functionName = ? AND blockNumber = ?`
+          `SELECT result FROM contractReads WHERE chainId = ? AND address = ? AND data = ? AND functionName = ? AND blockNumber = ?`
         )
         .get(
+          args.chainId,
           args.address,
           args.data,
           args.functionName,
@@ -261,6 +282,7 @@ export function createSqliteCache(dbPath: string): Cache {
     },
 
     async insertContractRead(args: {
+      chainId: number;
       address: Hex;
       data: Hex;
       functionName: string;
@@ -268,8 +290,9 @@ export function createSqliteCache(dbPath: string): Cache {
       result: Hex;
     }): Promise<void> {
       db.prepare(
-        `INSERT OR REPLACE INTO contractReads (address, data, functionName, blockNumber, result) VALUES (?, ?, ?, ?, ?)`
+        `INSERT OR REPLACE INTO contractReads (chainId, address, data, functionName, blockNumber, result) VALUES (?, ?, ?, ?, ?, ?)`
       ).run(
+        args.chainId,
         args.address,
         args.data,
         args.functionName,

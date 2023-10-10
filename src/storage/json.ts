@@ -148,13 +148,8 @@ export interface Options {
   writeDelay?: number;
 }
 
-export async function createJsonDatabase(
-  dir: string,
-  options: Options
-): Promise<Database> {
+export function createJsonDatabase(dir: string, options: Options): Database {
   const collections: Record<string, Collection<Document>> = {};
-
-  fs.mkdirSync(dir, { recursive: true });
 
   return {
     collection<T extends Document>(name: string): Collection<T> {

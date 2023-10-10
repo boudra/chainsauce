@@ -1,6 +1,7 @@
 import { retry } from "@/retry";
 import { Logger } from "@/logger";
 import { Hex, ToBlock } from "@/types";
+import { toHex } from "viem";
 
 export type Log = {
   address: Hex;

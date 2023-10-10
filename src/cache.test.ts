@@ -28,6 +28,7 @@ describe("event store", () => {
     };
 
     await cache.insertEvents({
+      chainId: 1,
       events: [event],
       address: "0x123",
       topics: ["0x456"],
@@ -37,6 +38,7 @@ describe("event store", () => {
 
     {
       const storedEvents = await cache.getEvents({
+        chainId: 1,
         address: "0x123",
         topic: "0x456",
         fromBlock: 0n,
@@ -54,6 +56,7 @@ describe("event store", () => {
 
     {
       const storedEvents = await cache.getEvents({
+        chainId: 1,
         address: "0x123",
         topic: "0x456",
         fromBlock: 0n,
@@ -65,6 +68,7 @@ describe("event store", () => {
 
     {
       const storedEvents = await cache.getEvents({
+        chainId: 1,
         address: "0x123",
         topic: "0x456",
         fromBlock: 100n,
@@ -82,6 +86,7 @@ describe("event store", () => {
 
     {
       const storedEvents = await cache.getEvents({
+        chainId: 1,
         address: "0x123",
         topic: "0x456",
         fromBlock: 0n,
@@ -115,6 +120,7 @@ describe("event store", () => {
     const eventsBatch2 = [makeEvent(3n), makeEvent(4n)];
 
     await cache.insertEvents({
+      chainId: 1,
       events: eventsBatch1,
       address: "0x123",
       topics: ["0x456"],
@@ -123,6 +129,7 @@ describe("event store", () => {
     });
 
     await cache.insertEvents({
+      chainId: 1,
       events: eventsBatch2,
       address: "0x123",
       topics: ["0x456"],
@@ -131,6 +138,7 @@ describe("event store", () => {
     });
 
     const storedEvents = await cache.getEvents({
+      chainId: 1,
       address: "0x123",
       topic: "0x456",
       fromBlock: 1n,
@@ -155,6 +163,7 @@ describe("event store", () => {
     const eventsBatch2 = [makeEvent(2n), makeEvent(4n)];
 
     await cache.insertEvents({
+      chainId: 1,
       events: eventsBatch1,
       address: "0x123",
       topics: ["0x456"],
@@ -163,6 +172,7 @@ describe("event store", () => {
     });
 
     await cache.insertEvents({
+      chainId: 1,
       events: eventsBatch2,
       address: "0x123",
       topics: ["0x456"],
@@ -171,6 +181,7 @@ describe("event store", () => {
     });
 
     const storedEvents = await cache.getEvents({
+      chainId: 1,
       address: "0x123",
       topic: "0x456",
       fromBlock: 1n,
@@ -192,6 +203,7 @@ describe("event store", () => {
     const cache = createInMemoryCache();
 
     await cache.insertEvents({
+      chainId: 1,
       events: [makeEvent(1n)],
       address: "0x123",
       topics: ["0x456"],
@@ -200,6 +212,7 @@ describe("event store", () => {
     });
 
     const storedEvents = await cache.getEvents({
+      chainId: 1,
       address: "0x123",
       topic: "0x456",
       fromBlock: 3n,
