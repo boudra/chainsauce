@@ -224,7 +224,7 @@ export function createIndexer<
               });
             },
             subscribeToContract: (opts) => {
-              subscribeToContract({
+              return subscribeToContract({
                 ...opts,
                 fromBlock: event.blockNumber,
               });
@@ -234,6 +234,10 @@ export function createIndexer<
 
           if (subscription.eventHandler !== null) {
             await subscription.eventHandler(eventHandlerArgs);
+          }
+
+          if (config.onEvent) {
+            await (config.onEvent as EventHandler)(eventHandlerArgs);
           }
         } catch (err) {
           logger.error({ message: "Error applying event", err, event });
@@ -583,8 +587,10 @@ function createRpcClientFromConfig(
   logger: Logger
 ): RpcClient {
   if ("url" in rpc) {
-    const fetch = rpc.fetch ?? globalThis.fetch;
-    return createRpcClient(logger, rpc.url, fetch);
+    return createRpcClient({
+      logger,
+      url: rpc.url,
+    });
   } else if ("getLastBlockNumber" in rpc) {
     return {
       getLastBlockNumber: rpc.getLastBlockNumber,

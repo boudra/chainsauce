@@ -12,7 +12,11 @@ test("should get last block number", async () => {
     json: async () => ({ result: "0x2A" }),
   });
 
-  const rpcClient = createRpcClient(mockLogger, "http://localhost", mockFetch);
+  const rpcClient = createRpcClient({
+    logger: mockLogger,
+    url: "http://localhost",
+    fetch: mockFetch,
+  });
   const result = await rpcClient.getLastBlockNumber();
   expect(result).toBe(42n);
 
@@ -51,7 +55,12 @@ test("should get logs", async () => {
     json: async () => ({ result: fakeLogs }),
   });
 
-  const rpcClient = createRpcClient(mockLogger, "http://localhost", mockFetch);
+  const rpcClient = createRpcClient({
+    logger: mockLogger,
+    url: "http://localhost",
+    fetch: mockFetch,
+  });
+
   const logs = await rpcClient.getLogs({
     address: "0x123",
     topics: ["0x789"],
@@ -69,7 +78,11 @@ test("should throw JsonRpcError on error", async () => {
     json: async () => ({ error: { message: "fail", code: -1, data: null } }),
   });
 
-  const rpcClient = createRpcClient(mockLogger, "http://localhost", mockFetch);
+  const rpcClient = createRpcClient({
+    logger: mockLogger,
+    url: "http://localhost",
+    fetch: mockFetch,
+  });
 
   try {
     await rpcClient.getLastBlockNumber();
@@ -86,7 +99,11 @@ test("should throw JsonRpcError on 500 error", async () => {
     json: async () => ({}),
   });
 
-  const rpcClient = createRpcClient(mockLogger, "http://localhost", mockFetch);
+  const rpcClient = createRpcClient({
+    logger: mockLogger,
+    url: "http://localhost",
+    fetch: mockFetch,
+  });
 
   try {
     await rpcClient.getLastBlockNumber();
@@ -109,7 +126,11 @@ test("should throw JsonRpcRangeTooWideError on Alchemy query error", async () =>
     }),
   });
 
-  const rpcClient = createRpcClient(mockLogger, "http://localhost", mockFetch);
+  const rpcClient = createRpcClient({
+    logger: mockLogger,
+    url: "http://localhost",
+    fetch: mockFetch,
+  });
 
   try {
     await rpcClient.getLogs({

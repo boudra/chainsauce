@@ -1,7 +1,7 @@
 import { retry } from "@/retry";
 import { Logger } from "@/logger";
 import { Hex, ToBlock } from "@/types";
-import { toHex } from "viem";
+import fastq from "fastq";
 
 export type Log = {
   address: Hex;
@@ -67,11 +67,28 @@ export interface RpcClient {
   }): Promise<Hex>;
 }
 
-export function createRpcClient(
-  _logger: Logger,
-  rpcUrl: string,
-  fetch: typeof globalThis.fetch
-): RpcClient {
+export function createRpcClient(args: {
+  logger: Logger;
+  url: string;
+  fetch?: typeof globalThis.fetch;
+  concurrency?: number;
+}): RpcClient {
+  const { url } = args;
+
+  const fetch = args.fetch ?? globalThis.fetch;
+  const concurrency = args.concurrency ?? 5;
+
+  const queue = fastq.promise(
+    async (task: { method: string; params: unknown }) => {
+      return rpcCall(task.method, task.params);
+    },
+    concurrency
+  );
+
+  function queueRpcCall<T>(method: string, params: unknown): Promise<T> {
+    return queue.push({ method, params }) as Promise<T>;
+  }
+
   async function rpcCall<T>(method: string, params: unknown): Promise<T> {
     const body = JSON.stringify({
       jsonrpc: "2.0",
@@ -80,7 +97,7 @@ export function createRpcClient(
       params: params,
     });
 
-    const response = await fetch(rpcUrl, {
+    const response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -89,7 +106,7 @@ export function createRpcClient(
     });
 
     if (response.status !== 200) {
-      throw new JsonRpcError(rpcUrl, method, params, response);
+      throw new JsonRpcError(url, method, params, response);
     }
 
     const contentType = response.headers.get("Content-Type");
@@ -102,7 +119,7 @@ export function createRpcClient(
     const json = await response.json();
 
     if ("error" in json) {
-      throw new JsonRpcError(rpcUrl, method, params, response, json.error);
+      throw new JsonRpcError(url, method, params, response, json.error);
     }
 
     return json.result;
@@ -123,7 +140,7 @@ export function createRpcClient(
               : `0x${opts.toBlock.toString(16)}`;
 
           try {
-            return await rpcCall<Log[]>("eth_getLogs", [
+            return await queueRpcCall<Log[]>("eth_getLogs", [
               {
                 address: opts.address,
                 topics: opts.topics,
@@ -155,9 +172,6 @@ export function createRpcClient(
 
             return true;
           },
-          onRetry: () => {
-            return;
-          },
           delay: 1000,
         }
       );
@@ -166,15 +180,12 @@ export function createRpcClient(
     async getLastBlockNumber(): Promise<bigint> {
       return retry(
         async () => {
-          const response = await rpcCall<string>("eth_blockNumber", []);
+          const response = await queueRpcCall<string>("eth_blockNumber", []);
 
           return BigInt(response);
         },
         {
           maxRetries: 5,
-          onRetry: () => {
-            return;
-          },
           delay: 1000,
         }
       );
@@ -190,7 +201,7 @@ export function createRpcClient(
         async () => {
           const blockNumber = `0x${args.blockNumber.toString(16)}`;
 
-          return await rpcCall<Hex>("eth_call", [
+          return await queueRpcCall<Hex>("eth_call", [
             {
               to: args.address,
               data: args.data,
@@ -200,9 +211,6 @@ export function createRpcClient(
         },
         {
           maxRetries: 5,
-          onRetry: () => {
-            return;
-          },
           delay: 1000,
         }
       );

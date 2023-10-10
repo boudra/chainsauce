@@ -2,7 +2,7 @@ export async function retry<T>(
   fn: () => Promise<T>,
   opts: {
     maxRetries: number;
-    onRetry: (error: unknown) => void;
+    onRetry?: (error: unknown) => void;
     shouldRetry?: (error: unknown) => boolean;
     delay: number;
   }
@@ -23,7 +23,9 @@ export async function retry<T>(
         throw error;
       }
       await new Promise((resolve) => setTimeout(resolve, opts.delay));
-      opts.onRetry(error);
+      if (opts.onRetry) {
+        opts.onRetry(error);
+      }
     }
   }
 }

@@ -1,9 +1,9 @@
 import { decodeEventLog, fromHex, getAddress } from "viem";
 
 import { Abi, AbiEvent } from "abitype";
-import { Event, EventHandler, ToBlock } from "@/types";
+import { Event, EventHandler, Hex, ToBlock } from "@/types";
 import { Logger } from "@/logger";
-import { JsonRpcRangeTooWideError, RpcClient } from "@/rpc";
+import { JsonRpcRangeTooWideError, Log, RpcClient } from "@/rpc";
 import { SubscriptionStore } from "@/subscriptionStore";
 import { Cache } from "@/cache";
 
@@ -123,6 +123,58 @@ function getActiveSubscriptions(args: {
   });
 }
 
+async function fetchLogsWithRetry(args: {
+  rpc: RpcClient;
+  address: Hex;
+  fromBlock: bigint;
+  toBlock: bigint;
+  topics: Hex[] | Hex[][];
+  logger: Logger;
+  onLogs: (args: { from: bigint; to: bigint; logs: Log[] }) => void;
+}) {
+  const { onLogs, rpc, address, fromBlock, toBlock, topics, logger } = args;
+
+  let cursor = fromBlock;
+
+  let steps = 1n;
+
+  while (cursor <= toBlock) {
+    try {
+      const pageToBlock = cursor + (toBlock - cursor) / steps;
+
+      logger.trace(`Fetching events ${cursor}-${pageToBlock} (${address})`);
+
+      const logs = await rpc.getLogs({
+        address: address,
+        fromBlock: cursor,
+        toBlock: pageToBlock,
+        topics: topics,
+      });
+
+      logger.trace(`Fetched events ${logs.length}`);
+
+      onLogs({ logs, from: cursor, to: pageToBlock });
+
+      cursor = pageToBlock + 1n;
+
+      // range successfully fetched, fetch wider range
+      steps = steps / 2n;
+      if (steps < 1n) {
+        steps = 1n;
+      }
+    } catch (error) {
+      if (error instanceof JsonRpcRangeTooWideError) {
+        logger.warn("Range too wide, splitting in half and retrying");
+        // range too wide, split in half and retry
+        steps = steps * 2n;
+        continue;
+      }
+
+      throw error;
+    }
+  }
+}
+
 export async function getSubscriptionEvents(args: {
   targetBlock: bigint;
   chainId: number;
@@ -184,32 +236,21 @@ export async function getSubscriptionEvents(args: {
     fetchRequests[group].subscriptions.push(subscription);
   }
 
-  for (const { from, to, subscriptions: batchSubscriptions } of Object.values(
-    fetchRequests
-  )) {
-    let currentBlock = from;
+  const fetchPromises = [];
 
-    const address = batchSubscriptions[0].contractAddress;
-    const topics = batchSubscriptions.map((s) => s.topic);
+  for (const batch of Object.values(fetchRequests)) {
+    const address = batch.subscriptions[0].contractAddress;
+    const topics = batch.subscriptions.map((s) => s.topic);
 
-    let steps = 1n;
-
-    while (currentBlock <= to) {
-      try {
-        const toBlock = currentBlock + (targetBlock - currentBlock) / steps;
-
-        logger.trace(`Fetching events ${currentBlock}-${toBlock} (${address})`);
-
-        const logs = await rpc.getLogs({
-          address: address,
-          fromBlock: currentBlock,
-          toBlock: toBlock,
-          topics: [topics],
-        });
-
-        logger.trace(`Fetched events ${logs.length}`);
-
-        const events = [];
+    const promise = fetchLogsWithRetry({
+      rpc,
+      address,
+      fromBlock: batch.from,
+      toBlock: batch.to,
+      topics: [topics],
+      logger,
+      onLogs: async ({ from: chunkFromBlock, to: chunkToBlock, logs }) => {
+        const events: Event[] = [];
 
         for (const log of logs) {
           const logAddress = getAddress(log.address);
@@ -257,31 +298,18 @@ export async function getSubscriptionEvents(args: {
             chainId,
             topics: topics,
             address: address,
-            fromBlock: currentBlock,
-            toBlock: toBlock,
+            fromBlock: chunkFromBlock,
+            toBlock: chunkToBlock,
             events,
           });
         }
+      },
+    });
 
-        currentBlock = toBlock + 1n;
-
-        // range successfully fetched, fetch wider range
-        steps = steps / 2n;
-        if (steps < 1n) {
-          steps = 1n;
-        }
-      } catch (error) {
-        if (error instanceof JsonRpcRangeTooWideError) {
-          logger.warn("Range too wide, splitting in half and retrying");
-          // range too wide, split in half and retry
-          steps = steps * 2n;
-          continue;
-        }
-
-        throw error;
-      }
-    }
+    fetchPromises.push(promise);
   }
+
+  await Promise.all(fetchPromises);
 
   return activeSubscriptions.map(({ subscription }) => subscription.id);
 }
