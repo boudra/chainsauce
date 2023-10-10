@@ -6,7 +6,7 @@ import {
   getAbiItem,
   getAddress,
 } from "viem";
-import { createRpcClient, RpcClient } from "@/rpc";
+import { createConcurrentRpcClient, createRpcClient, RpcClient } from "@/rpc";
 import { Cache } from "@/cache";
 import { Logger, LoggerBackend, LogLevel } from "@/logger";
 import {
@@ -60,6 +60,7 @@ export type Config<TAbis extends Record<string, Abi>, TContext = unknown> = {
   chain: {
     name: string;
     id: number;
+    concurrency?: number;
     rpc: RpcClient | { url: string; fetch?: typeof globalThis.fetch };
   };
   onProgress?: (progress: {
@@ -149,7 +150,11 @@ export function createIndexer<
 
   const logger = new Logger(logLevel, loggerBackend);
   const cache = config.cache ?? null;
-  const rpc = createRpcClientFromConfig(config.chain.rpc, logger);
+  const rpc = createRpcClientFromConfig({
+    rpc: config.chain.rpc,
+    concurrency: config.chain.concurrency,
+    logger,
+  });
 
   let state: IndexerState = {
     type: "initial",
@@ -266,8 +271,6 @@ export function createIndexer<
 
         // new subscriptions were added while processing
         if (subscriptions.size > totalSubscriptionCount) {
-          logger.trace("New subscriptions were added while processing events");
-
           for (const id of fetchedSubscriptionIds) {
             updateSubscription(subscriptions, id, {
               indexedToBlock: event.blockNumber,
@@ -582,17 +585,22 @@ export function createIndexer<
   };
 }
 
-function createRpcClientFromConfig(
-  rpc: RpcClient | { url: string; fetch?: typeof globalThis.fetch },
-  logger: Logger
-): RpcClient {
+function createRpcClientFromConfig(args: {
+  concurrency?: number;
+  rpc: RpcClient | { url: string; fetch?: typeof globalThis.fetch };
+  logger: Logger;
+}): RpcClient {
+  const { rpc, logger } = args;
+
+  let client: RpcClient;
+
   if ("url" in rpc) {
-    return createRpcClient({
+    client = createRpcClient({
       logger,
       url: rpc.url,
     });
   } else if ("getLastBlockNumber" in rpc) {
-    return {
+    client = {
       getLastBlockNumber: rpc.getLastBlockNumber,
       getLogs: rpc.getLogs,
       readContract: rpc.readContract,
@@ -600,6 +608,11 @@ function createRpcClientFromConfig(
   } else {
     throw new Error("Invalid RPC options, please provide a URL or a client");
   }
+
+  return createConcurrentRpcClient({
+    client,
+    concurrency: args.concurrency,
+  });
 }
 
 // TODO: priority queue

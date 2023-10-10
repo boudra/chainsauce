@@ -1,7 +1,8 @@
+import fastq from "fastq";
+
 import { retry } from "@/retry";
 import { Logger } from "@/logger";
 import { Hex, ToBlock } from "@/types";
-import fastq from "fastq";
 
 export type Log = {
   address: Hex;
@@ -67,6 +68,34 @@ export interface RpcClient {
   }): Promise<Hex>;
 }
 
+export function createConcurrentRpcClient(args: {
+  client: RpcClient;
+  concurrency?: number;
+}): RpcClient {
+  const { client } = args;
+  const concurrency = args.concurrency ?? 5;
+
+  const queue = fastq.promise(async (task: () => Promise<unknown>) => {
+    return await task();
+  }, concurrency);
+
+  function queueRpcCall<T>(task: () => Promise<unknown>) {
+    return queue.push(task) as Promise<T>;
+  }
+
+  return {
+    async getLastBlockNumber(): Promise<bigint> {
+      return queueRpcCall(() => client.getLastBlockNumber());
+    },
+    async getLogs(args): Promise<Log[]> {
+      return queueRpcCall(() => client.getLogs(args));
+    },
+    async readContract(args): Promise<Hex> {
+      return queueRpcCall(() => client.readContract(args));
+    },
+  };
+}
+
 export function createRpcClient(args: {
   logger: Logger;
   url: string;
@@ -76,18 +105,6 @@ export function createRpcClient(args: {
   const { url } = args;
 
   const fetch = args.fetch ?? globalThis.fetch;
-  const concurrency = args.concurrency ?? 5;
-
-  const queue = fastq.promise(
-    async (task: { method: string; params: unknown }) => {
-      return rpcCall(task.method, task.params);
-    },
-    concurrency
-  );
-
-  function queueRpcCall<T>(method: string, params: unknown): Promise<T> {
-    return queue.push({ method, params }) as Promise<T>;
-  }
 
   async function rpcCall<T>(method: string, params: unknown): Promise<T> {
     const body = JSON.stringify({
@@ -140,7 +157,7 @@ export function createRpcClient(args: {
               : `0x${opts.toBlock.toString(16)}`;
 
           try {
-            return await queueRpcCall<Log[]>("eth_getLogs", [
+            return await rpcCall<Log[]>("eth_getLogs", [
               {
                 address: opts.address,
                 topics: opts.topics,
@@ -180,7 +197,7 @@ export function createRpcClient(args: {
     async getLastBlockNumber(): Promise<bigint> {
       return retry(
         async () => {
-          const response = await queueRpcCall<string>("eth_blockNumber", []);
+          const response = await rpcCall<string>("eth_blockNumber", []);
 
           return BigInt(response);
         },
@@ -201,7 +218,7 @@ export function createRpcClient(args: {
         async () => {
           const blockNumber = `0x${args.blockNumber.toString(16)}`;
 
-          return await queueRpcCall<Hex>("eth_call", [
+          return await rpcCall<Hex>("eth_call", [
             {
               to: args.address,
               data: args.data,
