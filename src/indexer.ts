@@ -158,7 +158,7 @@ export function createIndexer<
       return;
     }
 
-    function schedule(delay = eventPollDelayMs) {
+    function scheduleNextPoll(delay = eventPollDelayMs) {
       if (state.type === "running") {
         state.pollTimeout = setTimeout(poll, delay);
       }
@@ -272,7 +272,7 @@ export function createIndexer<
             );
           }
 
-          schedule(0);
+          scheduleNextPoll(0);
           return;
         }
       }
@@ -305,7 +305,7 @@ export function createIndexer<
         return;
       }
 
-      schedule();
+      scheduleNextPoll();
     } catch (err) {
       state.onError(err);
       stop();
