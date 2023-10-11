@@ -490,7 +490,7 @@ export function createIndexer<
       throw new Error("Indexer is not running");
     }
 
-    logger.debug("Stopping indexer");
+    logger.trace("Stopping indexer");
 
     clearTimeout(state.pollTimeout);
     state.onFinish();
