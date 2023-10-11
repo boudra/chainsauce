@@ -1,5 +1,7 @@
-import fs from "node:fs";
+import fs from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
+import fastq from "fastq";
 
 import { Collection, Database, Document } from "@/storage";
 import debounce from "@/debounce.js";
@@ -37,133 +39,161 @@ function parse(_key: string, value: unknown) {
 
 type Index = { [key: string]: number };
 
+async function loadJsonData<T extends Document>(
+  filename: string
+): Promise<{ data: T[]; index: Index }> {
+  if (!existsSync(filename)) {
+    await fs.mkdir(path.dirname(filename), { recursive: true });
+    await fs.writeFile(filename, "[]");
+  }
+  const fileContents = await fs.readFile(filename, "utf-8");
+
+  const data = JSON.parse(fileContents, parse) as T[];
+
+  const index = buildIndex(data);
+
+  return { data, index };
+}
+
 class JsonCollection<T extends Document> implements Collection<T> {
   private filename: string;
-  private data: T[] | null = null;
-  private index: Index | null = null;
-  private save: ReturnType<typeof debounce>;
+  private loadingPromise: Promise<{ data: T[]; index: Index }> | null = null;
+  private savingPromise: Promise<void> | null = null;
+  private debouncedSave: ReturnType<typeof debounce>;
+
+  private taskQueue = fastq.promise(
+    this,
+    async (task) => {
+      this.debouncedSave.cancel();
+      const { data, index } = await this.load();
+      const result = await task({ data, index });
+      this.debouncedSave(data);
+      return result;
+    },
+    1
+  );
 
   constructor(filename: string, writeDelay: number) {
     this.filename = filename;
-    if (writeDelay > 0) {
-      this.save = debounce(() => this._save(), writeDelay);
-    } else {
-      this.save = () => this._save();
-    }
+    this.debouncedSave = debounce(() => this.save(), writeDelay);
   }
 
-  private load(): { data: T[]; index: Index } {
-    try {
-      if (this.data !== null && this.index !== null) {
-        return { data: this.data, index: this.index };
-      }
-
-      this.data = JSON.parse(
-        fs.readFileSync(this.filename).toString(),
-        parse
-      ) as T[];
-      this.index = buildIndex(this.data);
-    } catch {
-      this.data = [];
-      this.index = {};
-    }
-
-    return { data: this.data, index: this.index };
+  private queueTask<TReturn>(
+    task: (data: { data: T[]; index: Index }) => Promise<TReturn>
+  ): Promise<TReturn> {
+    return this.taskQueue.push(task);
   }
 
-  private _save() {
-    if (this.data === null) {
+  private async load(): Promise<{ data: T[]; index: Index }> {
+    // Wait for any ongoing save operation to complete
+    if (this.savingPromise) {
+      await this.savingPromise;
+    }
+
+    if (this.loadingPromise !== null) {
+      return this.loadingPromise;
+    }
+
+    this.loadingPromise = loadJsonData(this.filename);
+
+    return this.loadingPromise;
+  }
+
+  private async save() {
+    if (this.loadingPromise === null) {
       throw new Error("Saving without loading first!");
     }
 
-    const rt = fs.writeFileSync(
-      this.filename,
-      JSON.stringify(this.data, stringify)
-    );
-    this.data = null;
-    this.index = null;
+    const { data } = await this.loadingPromise;
 
-    return rt;
+    this.savingPromise = fs
+      .writeFile(this.filename, JSON.stringify(data, stringify))
+      .catch((err) => {
+        console.log("save failed", err);
+      })
+      .finally(() => {
+        this.savingPromise = null;
+        this.loadingPromise = null;
+      });
+
+    return this.savingPromise;
   }
 
-  insert(document: T): Promise<T> {
+  async insert(document: T): Promise<T> {
     if (typeof document !== "object") {
       throw new Error("Document must be an object");
     }
 
-    const { data, index } = this.load();
+    return this.queueTask(async ({ data, index }) => {
+      data.push(document);
+      index[document.id] = data.length - 1;
 
-    data.push(document);
-    index[document.id] = data.length - 1;
+      this.debouncedSave();
 
-    this.save();
-
-    return Promise.resolve(document);
+      return document;
+    });
   }
 
-  findById(id: string): Promise<T | null> {
-    const { data, index } = this.load();
-    return Promise.resolve(data[index[id]] ?? null);
+  async findById(id: string): Promise<T | null> {
+    return this.queueTask(async ({ data, index }) => {
+      return data[index[id]] ?? null;
+    });
   }
 
-  updateById(id: string, fun: (doc: T) => T): Promise<T | null> {
-    const { data, index } = this.load();
+  async updateById(id: string, fun: (doc: T) => T): Promise<T | null> {
+    return this.queueTask(async ({ data, index }) => {
+      if (index[id] === undefined) {
+        return null;
+      }
 
-    if (index[id] === undefined) {
-      return Promise.resolve(null);
-    }
+      const updatedRecord = fun(data[index[id]]);
+      data[index[id]] = { ...updatedRecord, id: data[index[id]].id };
 
-    const updatedRecord = fun(data[index[id]]);
-    data[index[id]] = { ...updatedRecord, id: data[index[id]].id };
-
-    this.save();
-
-    return Promise.resolve(data[index[id]]);
+      return data[index[id]];
+    });
   }
 
   // returns true it inserted a new record
-  upsertById(id: string, fun: (doc: T | null) => T): Promise<boolean> {
-    const { data, index } = this.load();
+  async upsertById(id: string, fun: (doc: T | null) => T): Promise<boolean> {
+    return this.queueTask(async ({ data, index }) => {
+      const isNewDocument = index[id] === undefined;
 
-    const isNewDocument = index[id] === undefined;
+      if (isNewDocument) {
+        const document = fun(null);
+        data.push(document);
+        index[document.id] = data.length - 1;
+      } else {
+        const updatedRecord = fun(data[index[id]]);
+        data[index[id]] = { ...updatedRecord, id: data[index[id]].id };
+      }
 
-    if (isNewDocument) {
-      this.insert(fun(null));
-    } else {
-      const updatedRecord = fun(data[index[id]]);
-      data[index[id]] = { ...updatedRecord, id: data[index[id]].id };
-      this.save();
-    }
-
-    return Promise.resolve(isNewDocument);
+      return isNewDocument;
+    });
   }
 
   async all(): Promise<T[]> {
-    const { data } = this.load();
-    return data;
+    return this.queueTask(async ({ data }) => {
+      return data;
+    });
   }
 }
 
 export interface Options {
+  dir: string;
   writeDelay?: number;
 }
 
-export function createJsonDatabase(dir: string, options: Options): Database {
+export function createJsonDatabase(options: Options): Database {
   const collections: Record<string, Collection<Document>> = {};
 
   return {
     collection<T extends Document>(name: string): Collection<T> {
       if (!collections[name]) {
-        const filename = path.join(dir, `${name}.json`);
-
-        if (!fs.existsSync(filename)) {
-          fs.mkdirSync(path.dirname(filename), { recursive: true });
-          fs.writeFileSync(filename, "[]");
-        }
+        const filename = path.join(options.dir, `${name}.json`);
 
         collections[name] = new JsonCollection(
           filename,
-          options.writeDelay ?? 500
+          options.writeDelay ?? 0
         );
       }
 
