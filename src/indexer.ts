@@ -524,7 +524,7 @@ export function createIndexer<
       args: args.args as unknown[],
     });
 
-    let result: Hex;
+    let result: Hex | undefined;
 
     if (cache) {
       const cachedRead = await cache.getContractRead({
@@ -540,22 +540,24 @@ export function createIndexer<
       }
     }
 
-    result = await rpc.readContract({
-      functionName: args.functionName,
-      data: data,
-      address: args.address,
-      blockNumber: args.blockNumber,
-    });
-
-    if (cache) {
-      await cache.insertContractRead({
-        chainId: config.chain.id,
-        address: args.address,
-        blockNumber: args.blockNumber,
+    if (result === undefined) {
+      result = await rpc.readContract({
         functionName: args.functionName,
         data: data,
-        result,
+        address: args.address,
+        blockNumber: args.blockNumber,
       });
+
+      if (cache) {
+        await cache.insertContractRead({
+          chainId: config.chain.id,
+          address: args.address,
+          blockNumber: args.blockNumber,
+          functionName: args.functionName,
+          data: data,
+          result,
+        });
+      }
     }
 
     return decodeFunctionResult({

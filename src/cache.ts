@@ -73,9 +73,11 @@ export function createSqliteCache(dbPath: string): Cache {
 
   const db = new SqliteDatabase(dbPath);
 
+  db.exec("PRAGMA journal_mode = WAL");
+
   db.exec(`
   CREATE TABLE IF NOT EXISTS events (
-    chainId INTEGER, -- Added chainId column
+    chainId INTEGER,
     name TEXT,
     params TEXT,
     address TEXT,
@@ -110,7 +112,7 @@ export function createSqliteCache(dbPath: string): Cache {
     functionName TEXT,
     blockNumber INTEGER,
     result TEXT,
-    PRIMARY KEY (chainId, address, data, functionName, blockNumber) -- Updated primary key
+    PRIMARY KEY (chainId, address, data, functionName, blockNumber)
   );
 `);
 

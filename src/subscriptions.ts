@@ -142,8 +142,6 @@ async function fetchLogsWithRetry(args: {
     try {
       const pageToBlock = cursor + (toBlock - cursor) / steps;
 
-      // logger.trace(`Fetching events ${cursor}-${pageToBlock} (${address})`);
-
       const logs = await rpc.getLogs({
         address: address,
         fromBlock: cursor,
@@ -151,7 +149,9 @@ async function fetchLogsWithRetry(args: {
         topics: topics,
       });
 
-      // logger.trace(`Fetched events ${logs.length}`);
+      logger.trace(
+        `Fetched ${logs.length} events ${cursor}-${pageToBlock} (${address})`
+      );
 
       onLogs({ logs, from: cursor, to: pageToBlock });
 
