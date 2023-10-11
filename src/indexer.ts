@@ -185,9 +185,7 @@ export function createIndexer<
         targetBlock = state.targetBlock;
       }
 
-      const totalSubscriptionCount = subscriptions.size;
-
-      const fetchedSubscriptionIds = await getSubscriptionEvents({
+      await getSubscriptionEvents({
         chainId: config.chain.id,
         targetBlock,
         subscriptions,
@@ -199,7 +197,11 @@ export function createIndexer<
         logger,
       });
 
-      for (const id of fetchedSubscriptionIds) {
+      const currentSubscriptionIds = Array.from(subscriptions.values()).map(
+        (s) => s.id
+      );
+
+      for (const id of currentSubscriptionIds) {
         updateSubscription(subscriptions, id, { fetchedToBlock: targetBlock });
       }
 
@@ -270,8 +272,8 @@ export function createIndexer<
         indexedToBlock = event.blockNumber;
 
         // new subscriptions were added while processing
-        if (subscriptions.size > totalSubscriptionCount) {
-          for (const id of fetchedSubscriptionIds) {
+        if (subscriptions.size > currentSubscriptionIds.length) {
+          for (const id of currentSubscriptionIds) {
             updateSubscription(subscriptions, id, {
               indexedToBlock: event.blockNumber,
               indexedToLogIndex: event.logIndex,
@@ -290,7 +292,7 @@ export function createIndexer<
         }
       }
 
-      for (const id of fetchedSubscriptionIds) {
+      for (const id of currentSubscriptionIds) {
         updateSubscription(subscriptions, id, {
           indexedToBlock: targetBlock,
           indexedToLogIndex: 0,

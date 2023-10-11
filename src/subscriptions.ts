@@ -84,7 +84,7 @@ export async function saveSubscriptionsToStore(
   }
 }
 
-function getActiveSubscriptions(args: {
+function getOutdatedSubscriptions(args: {
   subscriptions: Subscription[];
   targetBlock: bigint;
 }) {
@@ -142,7 +142,7 @@ async function fetchLogsWithRetry(args: {
     try {
       const pageToBlock = cursor + (toBlock - cursor) / steps;
 
-      logger.trace(`Fetching events ${cursor}-${pageToBlock} (${address})`);
+      // logger.trace(`Fetching events ${cursor}-${pageToBlock} (${address})`);
 
       const logs = await rpc.getLogs({
         address: address,
@@ -151,7 +151,7 @@ async function fetchLogsWithRetry(args: {
         topics: topics,
       });
 
-      logger.trace(`Fetched events ${logs.length}`);
+      // logger.trace(`Fetched events ${logs.length}`);
 
       onLogs({ logs, from: cursor, to: pageToBlock });
 
@@ -187,7 +187,7 @@ export async function getSubscriptionEvents(args: {
   const { chainId, rpc, subscriptions, targetBlock, cache, logger, pushEvent } =
     args;
 
-  const activeSubscriptions = getActiveSubscriptions({
+  const outdatedSubscriptions = getOutdatedSubscriptions({
     subscriptions: Array.from(subscriptions.values()),
     targetBlock,
   });
@@ -197,7 +197,7 @@ export async function getSubscriptionEvents(args: {
     { from: bigint; to: bigint; subscriptions: Subscription[] }
   > = {};
 
-  for (const { from, to, subscription } of activeSubscriptions) {
+  for (const { from, to, subscription } of outdatedSubscriptions) {
     let finalFetchFromBlock = from;
 
     if (cache) {
@@ -311,5 +311,5 @@ export async function getSubscriptionEvents(args: {
 
   await Promise.all(fetchPromises);
 
-  return activeSubscriptions.map(({ subscription }) => subscription.id);
+  return outdatedSubscriptions.map(({ subscription }) => subscription.id);
 }
