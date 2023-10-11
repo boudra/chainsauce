@@ -9,7 +9,8 @@
     "test": "vitest",
     "test:watch": "vitest --watch",
     "build": "tsc && tsc-alias",
-    "dev": "concurrently 'tsc --watch' 'tsc-alias --watch'"
+    "dev": "concurrently 'tsc --watch' 'tsc-alias --watch'",
+    "prepare": "npm run build"
   },
   "keywords": [
     "evm",
