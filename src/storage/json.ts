@@ -1,5 +1,4 @@
 import fs from "node:fs/promises";
-import { existsSync } from "node:fs";
 import path from "node:path";
 import fastq from "fastq";
 
@@ -42,15 +41,26 @@ type Index = { [key: string]: number };
 async function loadJsonData<T extends Document>(
   filename: string
 ): Promise<{ data: T[]; index: Index }> {
-  if (!existsSync(filename)) {
-    await fs.mkdir(path.dirname(filename), { recursive: true });
-    await fs.writeFile(filename, "[]");
+  let data: T[] = [];
+  let index: Index = {};
+
+  try {
+    const fileContents = await fs.readFile(filename, "utf-8");
+    data = JSON.parse(fileContents, parse) as T[];
+    index = buildIndex(data);
+  } catch (err) {
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      err.code === "ENOENT"
+    ) {
+      await fs.mkdir(path.dirname(filename), { recursive: true });
+      await fs.writeFile(filename, "[]");
+    } else {
+      throw err;
+    }
   }
-  const fileContents = await fs.readFile(filename, "utf-8");
-
-  const data = JSON.parse(fileContents, parse) as T[];
-
-  const index = buildIndex(data);
 
   return { data, index };
 }
