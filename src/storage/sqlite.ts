@@ -1,17 +1,7 @@
 import BetterSqlite3 from "better-sqlite3";
+import { Collection } from "@/storage";
 
 export type Document = { id: string; [key: string]: unknown };
-
-export interface Collection<T extends Document> {
-  insert(document: T): Promise<T>;
-  findById(id: string): Promise<T | null>;
-  updateById(id: string, fun: (doc: T) => Omit<T, "id">): Promise<T | null>;
-  upsertById(
-    id: string,
-    fun: (doc: T | null) => Omit<T, "id">
-  ): Promise<boolean>;
-  all(): Promise<T[]>;
-}
 
 export interface Database {
   collection<T extends Document>(name: string): Collection<T>;
@@ -87,10 +77,10 @@ class SqliteCollection<T extends Document> implements Collection<T> {
   }
 }
 
-export async function createSqliteDatabase(
-  filePath: string
-): Promise<Database> {
-  const db = new BetterSqlite3(filePath);
+export async function createSqliteDatabase(opts: {
+  dbPath: string;
+}): Promise<Database> {
+  const db = new BetterSqlite3(opts.dbPath);
   const collections: Record<string, Collection<Document>> = {};
 
   return {
