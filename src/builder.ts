@@ -1,12 +1,6 @@
-import {
-  Contracts,
-  CreateSubscriptionOptions,
-  Indexer,
-  Config,
-  createIndexer,
-} from "@/indexer";
+import { Contracts, Indexer, Config, createIndexer } from "@/indexer";
 import { Abi, ExtractAbiEventNames } from "abitype";
-import { EventHandler, EventHandlers } from "@/types";
+import { EventHandlers } from "@/types";
 
 export function buildIndexer() {
   return new IndexerBuilder({});
