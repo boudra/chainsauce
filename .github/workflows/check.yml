@@ -1,6 +1,4 @@
-name: Check Pull Request
-
-name: Node.js CI
+name: Check
 
 on: [push]
 
