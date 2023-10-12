@@ -4,7 +4,7 @@ export default function debounce<F extends (...args: unknown[]) => unknown>(
 ) {
   let timeout: ReturnType<typeof setTimeout> | undefined;
 
-  return function executedFunction(...args: Parameters<F>) {
+  const executedFunction = (...args: Parameters<F>) => {
     const later = function () {
       timeout = undefined;
       func(...args);
@@ -14,4 +14,11 @@ export default function debounce<F extends (...args: unknown[]) => unknown>(
 
     timeout = setTimeout(later, wait);
   };
+
+  executedFunction.cancel = function () {
+    clearTimeout(timeout);
+    timeout = undefined;
+  };
+
+  return executedFunction;
 }
