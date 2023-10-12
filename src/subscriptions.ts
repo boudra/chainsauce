@@ -139,9 +139,9 @@ async function fetchLogsWithRetry(args: {
   let steps = 1n;
 
   while (cursor <= toBlock) {
-    try {
-      const pageToBlock = cursor + (toBlock - cursor) / steps;
+    const pageToBlock = cursor + (toBlock - cursor) / steps;
 
+    try {
       const logs = await rpc.getLogs({
         address: address,
         fromBlock: cursor,
@@ -163,9 +163,11 @@ async function fetchLogsWithRetry(args: {
         steps = 1n;
       }
     } catch (error) {
+      // range too wide or too many logs returned, split in half and retry
       if (error instanceof JsonRpcRangeTooWideError) {
-        logger.warn("Range too wide, splitting in half and retrying");
-        // range too wide, split in half and retry
+        logger.warn(
+          `Range too wide ${cursor}-${pageToBlock}, retrying with smaller range`
+        );
         steps = steps * 2n;
         continue;
       }

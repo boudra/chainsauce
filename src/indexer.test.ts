@@ -4,8 +4,7 @@ import { buildIndexer, ToBlock, Hex, Log, Event } from "@/index";
 import { createInMemoryCache } from "@/cache";
 import { createSqliteSubscriptionStore } from "@/subscriptionStore";
 import { RpcClient } from "@/rpc";
-import { Abi, encodeEventTopics, zeroAddress } from "viem";
-import { ExtractAbiEventNames, Narrow } from "abitype";
+import { encodeEventTopics, zeroAddress } from "viem";
 
 const counterABI = [
   {
@@ -118,7 +117,7 @@ const initialBlocks: { number: bigint; logs: Log[] }[] = [
   },
 ];
 
-describe("index ERC20 contract", () => {
+describe("counter contract", () => {
   let state: {
     events: Event[];
     counters: Record<Hex, bigint>;
@@ -194,22 +193,23 @@ describe("index ERC20 contract", () => {
     const indexer = buildIndexer()
       .chain({ name: "test", id: 1, rpc: rpcClient })
       .contracts(Contracts)
-      .addSubscription({
-        contract: "Counter",
-        address: "0x0000000000000000000000000000000000000001",
-      })
-      .addSubscription({
-        contract: "Counter",
-        address: "0x0000000000000000000000000000000000000002",
-      })
-      .addEventListeners({
-        contract: "Counter",
-        events: {
+      .events({
+        Counter: {
           Increment: handleIncrement,
           Decrement: handleDecrement,
         },
       })
       .build();
+
+    indexer.subscribeToContract({
+      contract: "Counter",
+      address: "0x0000000000000000000000000000000000000001",
+    });
+
+    indexer.subscribeToContract({
+      contract: "Counter",
+      address: "0x0000000000000000000000000000000000000002",
+    });
 
     await indexer.indexToBlock("latest");
 
@@ -248,22 +248,23 @@ describe("index ERC20 contract", () => {
         }
       })
       .contracts(Contracts)
-      .addSubscription({
-        contract: "Counter",
-        address: "0x0000000000000000000000000000000000000001",
-      })
-      .addSubscription({
-        contract: "Counter",
-        address: "0x0000000000000000000000000000000000000002",
-      })
-      .addEventListeners({
-        contract: "Counter",
-        events: {
+      .events({
+        Counter: {
           Increment: handleIncrement,
           Decrement: handleDecrement,
         },
       })
       .build();
+
+    indexer.subscribeToContract({
+      contract: "Counter",
+      address: "0x0000000000000000000000000000000000000001",
+    });
+
+    indexer.subscribeToContract({
+      contract: "Counter",
+      address: "0x0000000000000000000000000000000000000002",
+    });
 
     await indexer.watch();
 
@@ -278,22 +279,23 @@ describe("index ERC20 contract", () => {
     const indexer = buildIndexer()
       .chain({ name: "test", id: 1, rpc: rpcClient })
       .contracts(Contracts)
-      .addSubscription({
-        contract: "Counter",
-        address: "0x0000000000000000000000000000000000000001",
-      })
-      .addSubscription({
-        contract: "Counter",
-        address: "0x0000000000000000000000000000000000000002",
-      })
-      .addEventListeners({
-        contract: "Counter",
-        events: {
+      .events({
+        Counter: {
           Increment: handleIncrement,
           Decrement: handleDecrement,
         },
       })
       .build();
+
+    indexer.subscribeToContract({
+      contract: "Counter",
+      address: "0x0000000000000000000000000000000000000001",
+    });
+
+    indexer.subscribeToContract({
+      contract: "Counter",
+      address: "0x0000000000000000000000000000000000000002",
+    });
 
     await indexer.indexToBlock(0n);
 
@@ -322,22 +324,23 @@ describe("index ERC20 contract", () => {
       })
       .cache(cache)
       .contracts(Contracts)
-      .addSubscription({
-        contract: "Counter",
-        address: "0x0000000000000000000000000000000000000001",
-      })
-      .addSubscription({
-        contract: "Counter",
-        address: "0x0000000000000000000000000000000000000002",
-      })
-      .addEventListeners({
-        contract: "Counter",
-        events: {
+      .events({
+        Counter: {
           Increment: handleIncrement,
           Decrement: handleDecrement,
         },
       })
       .build();
+
+    indexer.subscribeToContract({
+      contract: "Counter",
+      address: "0x0000000000000000000000000000000000000001",
+    });
+
+    indexer.subscribeToContract({
+      contract: "Counter",
+      address: "0x0000000000000000000000000000000000000002",
+    });
 
     await indexer.indexToBlock(2n);
 
@@ -361,22 +364,23 @@ describe("index ERC20 contract", () => {
       })
       .cache(cache)
       .contracts(Contracts)
-      .addSubscription({
-        contract: "Counter",
-        address: "0x0000000000000000000000000000000000000001",
-      })
-      .addSubscription({
-        contract: "Counter",
-        address: "0x0000000000000000000000000000000000000002",
-      })
-      .addEventListeners({
-        contract: "Counter",
-        events: {
+      .events({
+        Counter: {
           Increment: handleIncrement,
           Decrement: handleDecrement,
         },
       })
       .build();
+
+    indexer.subscribeToContract({
+      contract: "Counter",
+      address: "0x0000000000000000000000000000000000000001",
+    });
+
+    indexer.subscribeToContract({
+      contract: "Counter",
+      address: "0x0000000000000000000000000000000000000002",
+    });
 
     await indexer.indexToBlock(2n);
 
@@ -396,22 +400,23 @@ describe("index ERC20 contract", () => {
         .chain({ name: "test", id: 1, rpc: rpcClient })
         .subscriptionStore(subscriptionStore)
         .contracts(Contracts)
-        .addSubscription({
-          contract: "Counter",
-          address: "0x0000000000000000000000000000000000000001",
-        })
-        .addSubscription({
-          contract: "Counter",
-          address: "0x0000000000000000000000000000000000000002",
-        })
-        .addEventListeners({
-          contract: "Counter",
-          events: {
+        .events({
+          Counter: {
             Increment: handleIncrement,
             Decrement: handleDecrement,
           },
         })
         .build();
+
+      indexer.subscribeToContract({
+        contract: "Counter",
+        address: "0x0000000000000000000000000000000000000001",
+      });
+
+      indexer.subscribeToContract({
+        contract: "Counter",
+        address: "0x0000000000000000000000000000000000000002",
+      });
 
       await indexer.indexToBlock("latest");
 
@@ -444,22 +449,23 @@ describe("index ERC20 contract", () => {
         .chain({ name: "test", id: 1, rpc: rpcClient })
         .subscriptionStore(subscriptionStore)
         .contracts(Contracts)
-        .addEventListeners({
-          contract: "Counter",
-          events: {
+        .events({
+          Counter: {
             Increment: handleIncrement,
             Decrement: handleDecrement,
           },
         })
-        .addSubscription({
-          contract: "Counter",
-          address: "0x0000000000000000000000000000000000000001",
-        })
-        .addSubscription({
-          contract: "Counter",
-          address: "0x0000000000000000000000000000000000000002",
-        })
         .build();
+
+      indexer.subscribeToContract({
+        contract: "Counter",
+        address: "0x0000000000000000000000000000000000000001",
+      });
+
+      indexer.subscribeToContract({
+        contract: "Counter",
+        address: "0x0000000000000000000000000000000000000002",
+      });
 
       await indexer.indexToBlock("latest");
 
@@ -469,5 +475,73 @@ describe("index ERC20 contract", () => {
         "0x0000000000000000000000000000000000000002": 1n,
       });
     }
+  });
+
+  test("subscription with fromBlock and toBlock", async () => {
+    const fromBlock = 2n;
+    const toBlock = 2n;
+
+    const indexer = buildIndexer()
+      .chain({ name: "test", id: 1, rpc: rpcClient })
+      .contracts(Contracts)
+      .events({
+        Counter: {
+          Increment: handleIncrement,
+          Decrement: handleDecrement,
+        },
+      })
+      .build();
+
+    indexer.subscribeToContract({
+      contract: "Counter",
+      address: "0x0000000000000000000000000000000000000001",
+      fromBlock,
+      toBlock,
+    });
+
+    indexer.subscribeToContract({
+      contract: "Counter",
+      address: "0x0000000000000000000000000000000000000002",
+      fromBlock,
+      toBlock,
+    });
+
+    await indexer.indexToBlock("latest");
+
+    expect(state.events).toHaveLength(3);
+    expect(state.counters).toEqual({
+      "0x0000000000000000000000000000000000000001": 2n,
+      "0x0000000000000000000000000000000000000002": -1n,
+    });
+  });
+
+  test("no events if subscriptions are up to date", async () => {
+    const indexer = buildIndexer()
+      .chain({ name: "test", id: 1, rpc: rpcClient })
+      .contracts(Contracts)
+      .events({
+        Counter: {
+          Increment: handleIncrement,
+          Decrement: handleDecrement,
+        },
+      })
+      .build();
+
+    indexer.subscribeToContract({
+      contract: "Counter",
+      address: "0x0000000000000000000000000000000000000001",
+      fromBlock: 3n,
+    });
+
+    indexer.subscribeToContract({
+      contract: "Counter",
+      address: "0x0000000000000000000000000000000000000002",
+      fromBlock: 3n,
+    });
+
+    await indexer.indexToBlock("latest");
+
+    expect(state.events).toHaveLength(0);
+    expect(state.counters).toEqual({});
   });
 });

@@ -37,57 +37,31 @@ export class IndexerBuilder<
     return new IndexerBuilder(newOptions);
   }
 
-  addEventListeners<
-    TContractName extends keyof TAbis,
-    TEventName extends ExtractAbiEventNames<TAbis[TContractName]>
-  >(args: {
-    contract: TContractName;
-    events:
-      | Partial<
-          EventHandlers<TAbis, TContext, TAbis[TContractName], TEventName>
-        >
-      | ExtractAbiEventNames<TAbis[TContractName]>[];
-  }): IndexerBuilder<TAbis, TContext> {
-    const { contract: contractName, events } = args;
+  events<
+    T extends {
+      [K in keyof TAbis]?:
+        | Partial<EventHandlers<TAbis, TContext, TAbis[K]>>
+        | ExtractAbiEventNames<TAbis[K]>[];
+    }
+  >(events: T): IndexerBuilder<TAbis, TContext> {
+    const contracts = { ...(this.options.contracts ?? {}) };
+
+    for (const [contractName, contract] of Object.entries(events)) {
+      if (!this.options.contracts?.[contractName]) {
+        throw new Error(`Contract ${contractName} not found`);
+      }
+
+      const newContract = {
+        ...this.options.contracts[contractName],
+        events: contract,
+      };
+
+      contracts[contractName] = newContract;
+    }
 
     const newOptions = {
       ...this.options,
-      contracts: {
-        ...(this.options.contracts ?? {}),
-        [contractName]: {
-          ...(this.options.contracts?.[contractName] ?? {}),
-          events,
-        },
-      },
-    } as Config<TAbis, TContext>;
-
-    return new IndexerBuilder(newOptions);
-  }
-
-  addEventHandler<
-    TContractName extends keyof TAbis,
-    TEventName extends ExtractAbiEventNames<TAbis[TContractName]>
-  >(args: {
-    contract: TContractName;
-    event: TEventName | ExtractAbiEventNames<TAbis[TContractName]>;
-    handler: EventHandler<TAbis, TContext, TAbis[TContractName], TEventName>;
-  }) {
-    const { contract: contractName, event: eventName, handler } = args;
-
-    const newOptions = {
-      ...this.options,
-      contracts: {
-        ...(this.options.contracts ?? {}),
-        [contractName]: {
-          ...(this.options.contracts?.[contractName] ?? {}),
-          handlers: {
-            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-            // @ts-ignore
-            ...(this.options.contracts?.[contractName]?.events ?? {}),
-            [eventName]: handler,
-          },
-        },
-      },
+      contracts: contracts,
     } as Config<TAbis, TContext>;
 
     return new IndexerBuilder(newOptions);
@@ -147,51 +121,6 @@ export class IndexerBuilder<
     subscriptionStore: Config<TAbis>["subscriptionStore"]
   ): IndexerBuilder<TAbis, TContext> {
     return new IndexerBuilder({ ...this.options, subscriptionStore });
-  }
-
-  addSubscription(
-    options: CreateSubscriptionOptions<keyof TAbis>
-  ): IndexerBuilder<TAbis, TContext> {
-    const { contract: contractName } = options;
-
-    if (!this.options.contracts) {
-      throw new Error(
-        `Failed to add contract subscription: contracts are not defined`
-      );
-    }
-
-    const contract = this.options.contracts?.[contractName];
-
-    if (!contract) {
-      throw new Error(
-        `Failed to add contract subscription: contract ${String(
-          contractName
-        )} is not found`
-      );
-    }
-
-    const newOptions = {
-      ...this.options,
-      contracts: {
-        ...this.options.contracts,
-        [contractName]: {
-          ...contract,
-          subscriptions: [
-            // TODO: something is up with the types here, logic is valid
-            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-            // @ts-ignore
-            ...(contract.subscriptions ?? []),
-            {
-              address: options.address,
-              fromBlock: options.fromBlock,
-              toBlock: options.toBlock,
-            },
-          ],
-        },
-      },
-    } as Config<TAbis, TContext>;
-
-    return new IndexerBuilder(newOptions);
   }
 
   build(): Indexer<TAbis, TContext> {

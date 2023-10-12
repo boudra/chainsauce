@@ -118,9 +118,6 @@ class JsonCollection<T extends Document> implements Collection<T> {
 
     this.savingPromise = fs
       .writeFile(this.filename, JSON.stringify(data, stringify))
-      .catch((err) => {
-        console.log("save failed", err);
-      })
       .finally(() => {
         this.savingPromise = null;
         this.loadingPromise = null;
