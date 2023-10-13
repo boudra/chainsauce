@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { buildIndexer, ToBlock, Hex, Log, Event } from "@/index";
-import { createInMemoryCache } from "@/cache";
+import { createSqliteCache } from "@/cache/sqlite";
 import { createSqliteSubscriptionStore } from "@/subscriptionStore";
 import { RpcClient } from "@/rpc";
 import { encodeEventTopics, zeroAddress } from "viem";
@@ -314,7 +314,7 @@ describe("counter contract", () => {
 
   test("event store is used", async () => {
     const getLogsMock = vi.fn().mockImplementation(rpcClient.getLogs);
-    const cache = createInMemoryCache();
+    const cache = createSqliteCache(":memory:");
 
     let indexer = buildIndexer()
       .chain({
