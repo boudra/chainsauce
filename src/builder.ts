@@ -95,12 +95,6 @@ export class IndexerBuilder<
     });
   }
 
-  onProgress(
-    onProgress: Config<TAbis>["onProgress"]
-  ): IndexerBuilder<TAbis, TContext> {
-    return new IndexerBuilder({ ...this.options, onProgress });
-  }
-
   onEvent(
     onEvent: Config<TAbis, TContext>["onEvent"]
   ): IndexerBuilder<TAbis, TContext> {

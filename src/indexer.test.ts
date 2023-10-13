@@ -222,32 +222,8 @@ describe("counter contract", () => {
   test("live indexing of new blocks", async () => {
     const indexer = buildIndexer()
       .chain({ name: "test", id: 1, rpc: rpcClient })
-      .onProgress(({ currentBlock }) => {
-        // when we reach block 1, we add a new block to the chain
-        if (currentBlock === 2n) {
-          blocks.push({
-            number: 3n,
-            logs: [
-              {
-                address: "0x0000000000000000000000000000000000000002",
-                topics: [incrementTopic],
-                data: zeroAddress,
-                blockNumber: "0x3",
-                logIndex: "0x0",
-                transactionIndex: "0x0",
-                transactionHash: "0x123",
-                blockHash: "0x123",
-              },
-            ],
-          });
-        }
-
-        // when the new block is indexed, we stop the indexer
-        if (currentBlock === 3n) {
-          indexer.stop();
-        }
-      })
       .contracts(Contracts)
+      .eventPollIntervalMs(0)
       .events({
         Counter: {
           Increment: handleIncrement,
@@ -256,23 +232,64 @@ describe("counter contract", () => {
       })
       .build();
 
-    indexer.subscribeToContract({
-      contract: "Counter",
-      address: "0x0000000000000000000000000000000000000001",
+    indexer.on("progress", ({ currentBlock }) => {
+      if (currentBlock === 0n) {
+        throw new Error("error");
+      }
+
+      // when we reach block 1, we add a new block to the chain
+      if (currentBlock === 2n) {
+        blocks.push({
+          number: 3n,
+          logs: [
+            {
+              address: "0x0000000000000000000000000000000000000002",
+              topics: [incrementTopic],
+              data: zeroAddress,
+              blockNumber: "0x3",
+              logIndex: "0x0",
+              transactionIndex: "0x0",
+              transactionHash: "0x123",
+              blockHash: "0x123",
+            },
+          ],
+        });
+      }
+
+      // when the new block is indexed, we stop the indexer
+      if (currentBlock === 3n) {
+        indexer.stop();
+      }
     });
 
-    indexer.subscribeToContract({
-      contract: "Counter",
-      address: "0x0000000000000000000000000000000000000002",
+    const errorHandler = vi.fn();
+
+    indexer.on("error", errorHandler);
+
+    await new Promise<void>((resolve) => {
+      indexer.on("stopped", () => {
+        expect(state.events).toHaveLength(7);
+        expect(state.counters).toEqual({
+          "0x0000000000000000000000000000000000000001": 2n,
+          "0x0000000000000000000000000000000000000002": 1n,
+        });
+        resolve();
+      });
+
+      indexer.subscribeToContract({
+        contract: "Counter",
+        address: "0x0000000000000000000000000000000000000001",
+      });
+
+      indexer.subscribeToContract({
+        contract: "Counter",
+        address: "0x0000000000000000000000000000000000000002",
+      });
+
+      indexer.watch();
     });
 
-    await indexer.watch();
-
-    expect(state.events).toHaveLength(7);
-    expect(state.counters).toEqual({
-      "0x0000000000000000000000000000000000000001": 2n,
-      "0x0000000000000000000000000000000000000002": 1n,
-    });
+    expect(errorHandler).toHaveBeenCalledTimes(1);
   });
 
   test("resumable index with the same indexer instance", async () => {

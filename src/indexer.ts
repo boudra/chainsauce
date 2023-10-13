@@ -1,3 +1,5 @@
+import EventEmitter from "node:events";
+import TypedEmitter from "typed-emitter";
 import { Abi, ExtractAbiEventNames, ExtractAbiFunctionNames } from "abitype";
 import {
   decodeFunctionResult,
@@ -63,11 +65,6 @@ export type Config<TAbis extends Record<string, Abi>, TContext = unknown> = {
     concurrency?: number;
     rpc: RpcClient | { url: string; fetch?: typeof globalThis.fetch };
   };
-  onProgress?: (progress: {
-    currentBlock: bigint;
-    targetBlock: bigint;
-    pendingEventsCount: number;
-  }) => void;
   onEvent?: EventHandler<TAbis, TContext>;
   cache?: Cache;
   subscriptionStore?: SubscriptionStore;
@@ -83,16 +80,31 @@ export type CreateSubscriptionOptions<TName> = {
   id?: string;
 };
 
+type IndexerEvents = {
+  stopped: () => void;
+  started: () => void;
+  error: (error: unknown) => void;
+  progress: (progress: {
+    currentBlock: bigint;
+    targetBlock: bigint;
+    pendingEventsCount: number;
+  }) => void;
+};
+
 export interface Indexer<
   TAbis extends Record<string, Abi> = Record<string, Abi>,
-  TContext = unknown
+  TContext = unknown,
+  Events = IndexerEvents
 > {
   context: TContext;
 
   indexToBlock(toBlock: ToBlock): Promise<void>;
-  watch(): Promise<void>;
+  watch(): void;
 
   stop(): Promise<void>;
+
+  on<E extends keyof Events>(event: E, listener: Events[E]): void;
+  off<E extends keyof Events>(event: E, listener: Events[E]): void;
 
   subscribeToContract(options: CreateSubscriptionOptions<keyof TAbis>): void;
 
@@ -123,7 +135,7 @@ type RunningIndexerState = {
   pollTimeout: NodeJS.Timeout;
   targetBlock: ToBlock;
   onError: (error: unknown) => void;
-  onFinish: () => void;
+  onStop: () => void;
 };
 
 type IndexerState =
@@ -135,7 +147,8 @@ export function createIndexer<
   TAbis extends Record<string, Abi> = Record<string, Abi>,
   TContext = unknown
 >(config: Config<TAbis, TContext>): Indexer<TAbis, TContext> {
-  const eventPollDelayMs = config.eventPollDelayMs ?? 4000;
+  const eventEmitter = new EventEmitter() as TypedEmitter<IndexerEvents>;
+  const eventPollDelayMs = config.eventPollDelayMs ?? 1000;
   const logLevel: LogLevel = LogLevel[config.logLevel ?? "warn"];
 
   if (logLevel === undefined) {
@@ -220,35 +233,30 @@ export function createIndexer<
           continue;
         }
 
-        try {
-          const eventHandlerArgs: Parameters<EventHandler>[0] = {
-            event,
-            context: config.context,
-            readContract: (args) => {
-              return readContract({
-                ...args,
-                blockNumber: event.blockNumber,
-              });
-            },
-            subscribeToContract: (opts) => {
-              return subscribeToContract({
-                ...opts,
-                fromBlock: event.blockNumber,
-              });
-            },
-            chainId: config.chain.id,
-          };
+        const eventHandlerArgs: Parameters<EventHandler>[0] = {
+          event,
+          context: config.context,
+          readContract: (args) => {
+            return readContract({
+              ...args,
+              blockNumber: event.blockNumber,
+            });
+          },
+          subscribeToContract: (opts) => {
+            return subscribeToContract({
+              ...opts,
+              fromBlock: event.blockNumber,
+            });
+          },
+          chainId: config.chain.id,
+        };
 
-          if (subscription.eventHandler !== null) {
-            await subscription.eventHandler(eventHandlerArgs);
-          }
+        if (subscription.eventHandler !== null) {
+          await subscription.eventHandler(eventHandlerArgs);
+        }
 
-          if (config.onEvent) {
-            await (config.onEvent as EventHandler)(eventHandlerArgs);
-          }
-        } catch (err) {
-          logger.error({ message: "Error applying event", err, event });
-          throw err;
+        if (config.onEvent) {
+          await (config.onEvent as EventHandler)(eventHandlerArgs);
         }
 
         updateSubscription(subscriptions, subscription.id, {
@@ -257,12 +265,8 @@ export function createIndexer<
         });
 
         // report progress when we start a new block
-        if (
-          indexedToBlock < event.blockNumber &&
-          indexedToBlock > -1n &&
-          config.onProgress
-        ) {
-          config.onProgress({
+        if (indexedToBlock < event.blockNumber && indexedToBlock > -1n) {
+          eventEmitter.emit("progress", {
             currentBlock: indexedToBlock,
             targetBlock: targetBlock,
             pendingEventsCount: eventQueue.size(),
@@ -300,13 +304,11 @@ export function createIndexer<
       }
 
       // report progress when we reach the target block
-      if (config.onProgress) {
-        config.onProgress({
-          currentBlock: targetBlock,
-          targetBlock: targetBlock,
-          pendingEventsCount: eventQueue.size(),
-        });
-      }
+      eventEmitter.emit("progress", {
+        currentBlock: indexedToBlock,
+        targetBlock: targetBlock,
+        pendingEventsCount: eventQueue.size(),
+      });
 
       logger.trace(`Indexed to block ${targetBlock}`);
 
@@ -319,11 +321,10 @@ export function createIndexer<
         stop();
         return;
       }
-
-      scheduleNextPoll();
     } catch (err) {
       state.onError(err);
-      stop();
+    } finally {
+      scheduleNextPoll();
     }
   }
 
@@ -463,28 +464,6 @@ export function createIndexer<
     }
   }
 
-  async function indexToBlock(target: ToBlock): Promise<void> {
-    if (state.type === "initial") {
-      await init();
-    }
-
-    if (state.type === "running") {
-      throw new Error("Indexer is already running");
-    }
-
-    logger.debug(`Indexing to block ${target}`);
-
-    return new Promise((resolve, reject) => {
-      state = {
-        type: "running",
-        targetBlock: target,
-        onFinish: resolve,
-        onError: reject,
-        pollTimeout: setTimeout(poll, 0),
-      };
-    });
-  }
-
   async function stop() {
     if (state.type !== "running") {
       throw new Error("Indexer is not running");
@@ -493,7 +472,8 @@ export function createIndexer<
     logger.trace("Stopping indexer");
 
     clearTimeout(state.pollTimeout);
-    state.onFinish();
+    eventEmitter.emit("stopped");
+    state.onStop?.();
 
     state = {
       type: "stopped",
@@ -568,23 +548,84 @@ export function createIndexer<
   }
 
   return {
+    on(eventName, listener) {
+      eventEmitter.on(eventName, listener);
+    },
+
+    off(eventName, listener) {
+      eventEmitter.off(eventName, listener);
+    },
+
     context: config.context,
     subscribeToContract,
     stop,
 
     readContract,
 
-    async watch() {
-      return await indexToBlock("latest");
+    watch() {
+      const initPromise = state.type === "initial" ? init() : Promise.resolve();
+
+      initPromise
+        .then(() => {
+          if (state.type === "running") {
+            throw new Error("Indexer is already running");
+          }
+
+          logger.trace(`Watching chain for events`);
+
+          state = {
+            type: "running",
+            targetBlock: "latest",
+            // eslint-disable-next-line @typescript-eslint/no-empty-function
+            onStop: () => {},
+            onError: (error) => {
+              eventEmitter.emit("error", error);
+            },
+            pollTimeout: setTimeout(poll, 0),
+          };
+
+          eventEmitter.emit("started");
+        })
+        .catch((error) => {
+          eventEmitter.emit("error", error);
+        });
     },
 
     async indexToBlock(target: ToBlock) {
-      if (target === "latest") {
-        const lastBlock = await rpc.getLastBlockNumber();
-        return await indexToBlock(lastBlock);
+      if (state.type === "initial") {
+        await init();
       }
 
-      return await indexToBlock(target);
+      if (state.type === "running") {
+        throw new Error("Indexer is already running");
+      }
+
+      let targetBlock: bigint;
+
+      if (target === "latest") {
+        targetBlock = await rpc.getLastBlockNumber();
+      } else {
+        targetBlock = target;
+      }
+
+      logger.trace(`Indexing to block ${targetBlock}`);
+
+      return new Promise((resolve, reject) => {
+        state = {
+          type: "running",
+          targetBlock: targetBlock,
+          onStop: () => {
+            resolve();
+          },
+          onError: (error) => {
+            eventEmitter.emit("error", error);
+            stop();
+            reject();
+          },
+          pollTimeout: setTimeout(poll, 0),
+        };
+        eventEmitter.emit("started");
+      });
     },
   };
 }
