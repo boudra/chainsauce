@@ -45,14 +45,16 @@ export type EventHandlerArgs<
 > = {
   context: TContext;
   chainId: number;
-  event: BaseEvent<
-    N,
-    GetEventArgs<
-      TAbi,
-      N,
-      { EnableUnion: false; IndexedOnly: false; Required: true }
-    >
-  >;
+  event: N extends any
+    ? BaseEvent<
+        N,
+        GetEventArgs<
+          TAbi,
+          N,
+          { EnableUnion: false; IndexedOnly: false; Required: true }
+        >
+      >
+    : never;
   readContract<
     TContractName extends keyof TAbis,
     TFunctionName extends ExtractAbiFunctionNames<
@@ -60,6 +62,7 @@ export type EventHandlerArgs<
       "pure" | "view"
     >
   >(
+    this: void,
     args: {
       contract: TContractName;
       functionName: TFunctionName;
