@@ -323,9 +323,9 @@ export function createIndexer<
       }
     } catch (err) {
       state.onError(err);
-    } finally {
-      scheduleNextPoll();
     }
+
+    scheduleNextPoll();
   }
 
   function subscribeToContract(
