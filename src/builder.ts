@@ -107,8 +107,8 @@ export class IndexerBuilder<
     return new IndexerBuilder({ ...this.options, onEvent });
   }
 
-  cache(cache: Config<TAbis>["cache"]): IndexerBuilder<TAbis, TContext> {
-    return new IndexerBuilder({ ...this.options, cache: cache });
+  cache(cache: Config<TAbis>["cache"] | null): IndexerBuilder<TAbis, TContext> {
+    return new IndexerBuilder({ ...this.options, cache: cache ?? undefined });
   }
 
   subscriptionStore(
