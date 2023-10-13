@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import fastq from "fastq";
+import { encodeJsonWithBigInts, decodeJsonWithBigInts } from "@/utils";
 
 import { Collection, Database, Document } from "@/storage";
 import debounce from "@/debounce.js";
@@ -15,27 +15,6 @@ function buildIndex<T extends Document>(data: T[]): { [key: string]: number } {
   return index;
 }
 
-function stringify(_key: string, value: unknown) {
-  if (typeof value === "bigint") {
-    return { type: "bigint", value: value.toString() };
-  }
-  return value;
-}
-
-function parse(_key: string, value: unknown) {
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    "type" in value &&
-    value.type === "bigint" &&
-    "value" in value &&
-    typeof value.value === "string"
-  ) {
-    return BigInt(value.value);
-  }
-  return value;
-}
-
 type Index = { [key: string]: number };
 
 async function loadJsonData<T extends Document>(
@@ -46,7 +25,7 @@ async function loadJsonData<T extends Document>(
 
   try {
     const fileContents = await fs.readFile(filename, "utf-8");
-    data = JSON.parse(fileContents, parse) as T[];
+    data = decodeJsonWithBigInts(fileContents);
     index = buildIndex(data);
   } catch (err) {
     if (
@@ -56,7 +35,6 @@ async function loadJsonData<T extends Document>(
       err.code === "ENOENT"
     ) {
       await fs.mkdir(path.dirname(filename), { recursive: true });
-      await fs.writeFile(filename, "[]");
     } else {
       throw err;
     }
@@ -71,30 +49,22 @@ class JsonCollection<T extends Document> implements Collection<T> {
   private savingPromise: Promise<void> | null = null;
   private debouncedSave: ReturnType<typeof debounce>;
 
-  private taskQueue = fastq.promise(
-    this,
-    async (task) => {
-      this.debouncedSave.cancel();
-      const { data, index } = await this.load();
-      const result = await task({ data, index });
-      this.debouncedSave(data);
-      return result;
-    },
-    1
-  );
-
   constructor(filename: string, writeDelay: number) {
     this.filename = filename;
     this.debouncedSave = debounce(() => this.save(), writeDelay);
   }
 
-  private queueTask<TReturn>(
+  private async queueTask<TReturn>(
     task: (data: { data: T[]; index: Index }) => Promise<TReturn>
   ): Promise<TReturn> {
-    return this.taskQueue.push(task);
+    const { data, index } = await this.load();
+    const result = await task({ data, index });
+    this.debouncedSave(data);
+    return result;
   }
 
   private async load(): Promise<{ data: T[]; index: Index }> {
+    this.debouncedSave.cancel();
     // Wait for any ongoing save operation to complete
     if (this.savingPromise) {
       await this.savingPromise;
@@ -117,7 +87,7 @@ class JsonCollection<T extends Document> implements Collection<T> {
     const { data } = await this.loadingPromise;
 
     this.savingPromise = fs
-      .writeFile(this.filename, JSON.stringify(data, stringify))
+      .writeFile(this.filename, encodeJsonWithBigInts(data))
       .finally(() => {
         this.savingPromise = null;
         this.loadingPromise = null;
