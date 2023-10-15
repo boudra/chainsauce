@@ -9,6 +9,7 @@ import {
 import { GetEventArgs } from "viem";
 
 export type Hex = `0x${string}`;
+export type ToBlock = "latest" | bigint;
 
 export type ReadContractParameters<
   TAbis extends Record<string, Abi>,
@@ -107,25 +108,6 @@ type BaseEvent<N = string, P = Record<string, unknown>> = {
   transactionHash: Hex;
   blockNumber: bigint;
   logIndex: number;
-};
-
-export type ToBlock = "latest" | bigint;
-
-export type Contract<
-  TAbi extends Abi = Abi,
-  TContext = unknown,
-  TAbis extends Record<string, Abi> = Record<string, Abi>,
-  N extends ExtractAbiEventNames<TAbi> = ExtractAbiEventNames<TAbi>
-> = {
-  abi: TAbi;
-  subscriptions?: {
-    address: Hex;
-    fromBlock?: bigint;
-    toBlock?: ToBlock;
-  }[];
-  events?:
-    | Partial<EventHandlers<TAbis, TContext, TAbi, N>>
-    | ExtractAbiEventNames<TAbi>[];
 };
 
 export type UnionToIntersection<U> = (
