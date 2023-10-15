@@ -1,13 +1,5 @@
-import EventEmitter from "node:events";
-import TypedEmitter from "typed-emitter";
 import { Abi, ExtractAbiEventNames, ExtractAbiFunctionNames } from "abitype";
-import {
-  decodeFunctionResult,
-  encodeEventTopics,
-  encodeFunctionData,
-  getAbiItem,
-  getAddress,
-} from "viem";
+import { decodeFunctionResult, encodeFunctionData, getAddress } from "viem";
 import { createConcurrentRpcClient, createRpcClient, RpcClient } from "@/rpc";
 import { Cache } from "@/cache";
 import { Logger, LoggerBackend, LogLevel } from "@/logger";
@@ -30,6 +22,20 @@ import {
   updateSubscription,
   getSubscriptionEvents,
 } from "@/subscriptions";
+import { ListenerSignature, TypedEmitter } from "tiny-typed-emitter";
+
+class AwaitableEventEmitter<
+  L extends ListenerSignature<L>
+> extends TypedEmitter<L> {
+  async emitAsync<U extends keyof L>(
+    event: keyof L,
+    ...args: Parameters<L[U]>
+  ) {
+    const listeners = this.listeners(event);
+    const promises = listeners.map((listener) => listener(...args));
+    await Promise.all(promises);
+  }
+}
 
 export type Contracts<TAbis extends Record<string, Abi>> = {
   [K in keyof TAbis]: Contract<TAbis[K]>;
@@ -57,8 +63,8 @@ export type Config<TAbis extends Record<string, Abi>, TContext = unknown> = {
   logLevel?: keyof typeof LogLevel;
   logger?: LoggerBackend;
   eventPollDelayMs?: number;
-  context: TContext;
-  contracts: Contracts<TAbis>;
+  context?: TContext;
+  contracts: TAbis;
   chain: {
     name: string;
     id: number;
@@ -80,31 +86,48 @@ export type CreateSubscriptionOptions<TName> = {
   id?: string;
 };
 
-type IndexerEvents = {
+export type IndexerContractEvents<
+  TAbis extends Record<string, Abi>,
+  TContext
+> = UnionToIntersection<
+  {
+    [K in keyof TAbis]: {
+      [N in ExtractAbiEventNames<TAbis[K]> as `${K & string}:${N &
+        string}`]: EventHandler<TAbis, TContext, TAbis[K], N>;
+    };
+  }[keyof TAbis]
+>;
+
+type UnionToIntersection<U> = (
+  U extends unknown ? (k: U) => void : never
+) extends (k: infer I) => void
+  ? I
+  : never;
+
+type IndexerEvents<TAbis extends Record<string, Abi>, TContext> = {
   stopped: () => void;
   started: () => void;
-  error: (error: unknown) => void;
-  progress: (progress: {
+  error: (err: unknown) => void;
+  progress: (args: {
     currentBlock: bigint;
     targetBlock: bigint;
     pendingEventsCount: number;
   }) => void;
+  event: EventHandler<TAbis, TContext>;
 };
 
 export interface Indexer<
   TAbis extends Record<string, Abi> = Record<string, Abi>,
-  TContext = unknown,
-  Events = IndexerEvents
-> {
-  context: TContext;
+  TContext = unknown
+> extends AwaitableEventEmitter<
+    IndexerEvents<TAbis, TContext> & IndexerContractEvents<TAbis, TContext>
+  > {
+  context?: TContext;
 
   indexToBlock(toBlock: ToBlock): Promise<void>;
   watch(): void;
 
   stop(): Promise<void>;
-
-  on<E extends keyof Events>(event: E, listener: Events[E]): void;
-  off<E extends keyof Events>(event: E, listener: Events[E]): void;
 
   subscribeToContract(options: CreateSubscriptionOptions<keyof TAbis>): void;
 
@@ -147,7 +170,9 @@ export function createIndexer<
   TAbis extends Record<string, Abi> = Record<string, Abi>,
   TContext = unknown
 >(config: Config<TAbis, TContext>): Indexer<TAbis, TContext> {
-  const eventEmitter = new EventEmitter() as TypedEmitter<IndexerEvents>;
+  const eventEmitter = new AwaitableEventEmitter<
+    IndexerEvents<TAbis, TContext>
+  >();
   const eventPollDelayMs = config.eventPollDelayMs ?? 1000;
   const logLevel: LogLevel = LogLevel[config.logLevel ?? "warn"];
 
@@ -221,10 +246,7 @@ export function createIndexer<
       let indexedToBlock = findLowestIndexedBlock(subscriptions) ?? -1n;
 
       for (const event of eventQueue.drain()) {
-        const subscription = getSubscription(
-          subscriptions,
-          `${event.address}:${event.topic}`
-        );
+        const subscription = getSubscription(subscriptions, event.address);
 
         if (
           event.blockNumber === subscription.indexedToBlock &&
@@ -251,13 +273,13 @@ export function createIndexer<
           chainId: config.chain.id,
         };
 
-        if (subscription.eventHandler !== null) {
-          await subscription.eventHandler(eventHandlerArgs);
-        }
-
-        if (config.onEvent) {
-          await (config.onEvent as EventHandler)(eventHandlerArgs);
-        }
+        await Promise.all([
+          eventEmitter.emitAsync(
+            `${subscription.contractName}:${event.name}` as "event",
+            eventHandlerArgs
+          ),
+          eventEmitter.emitAsync("event", eventHandlerArgs),
+        ]);
 
         updateSubscription(subscriptions, subscription.id, {
           indexedToBlock: event.blockNumber,
@@ -345,75 +367,23 @@ export function createIndexer<
       } from ${subscribeOptions.fromBlock ?? 0}`
     );
 
-    if (contract.events === undefined) {
-      return;
-    }
+    const id = address;
 
-    let eventHandlers: Record<string, EventHandler | null>;
+    const fromBlock = subscribeOptions.fromBlock ?? 0n;
 
-    if (Array.isArray(contract.events)) {
-      eventHandlers = contract.events.reduce((acc, eventName) => {
-        acc[eventName as string] = null;
-        return acc;
-      }, {} as typeof eventHandlers);
-    } else {
-      eventHandlers = {};
+    const subscription: Subscription = {
+      id: id,
+      abi: contract,
+      contractName: String(contractName),
+      contractAddress: address,
+      fromBlock: fromBlock,
+      toBlock: subscribeOptions.toBlock ?? "latest",
+      indexedToBlock: subscribeOptions.indexedToBlock ?? fromBlock - 1n,
+      fetchedToBlock: -1n,
+      indexedToLogIndex: 0,
+    };
 
-      for (const name in contract.events) {
-        eventHandlers[name.toString()] =
-          (contract.events[name as keyof typeof contract.events] as
-            | EventHandler
-            | undefined) ?? null;
-      }
-    }
-
-    for (const eventName in eventHandlers) {
-      const eventHandler = eventHandlers[eventName];
-
-      const eventAbi = getAbiItem<Abi, string>({
-        abi: contract.abi,
-        name: eventName,
-      });
-
-      if (eventAbi.type !== "event") {
-        throw new Error(
-          `Expected ${eventName} in ${String(contractName)} to be an event`
-        );
-      }
-
-      const topics = encodeEventTopics<Abi, string>({
-        abi: contract.abi,
-        eventName,
-      });
-
-      if (topics.length !== 1) {
-        throw new Error(`Failed to encode event topics for ${eventName}`);
-      }
-
-      const topic = topics[0];
-
-      const id = `${address}:${topic}`;
-
-      const fromBlock = subscribeOptions.fromBlock ?? 0n;
-
-      const subscription: Subscription = {
-        id: id,
-        abi: [eventAbi],
-        contractName: String(contractName),
-        contractAddress: address,
-        eventName,
-        eventHandler: eventHandler,
-        topic,
-        eventAbi,
-        fromBlock: fromBlock,
-        toBlock: subscribeOptions.toBlock ?? "latest",
-        indexedToBlock: subscribeOptions.indexedToBlock ?? fromBlock - 1n,
-        fetchedToBlock: -1n,
-        indexedToLogIndex: 0,
-      };
-
-      subscriptions.set(id, subscription);
-    }
+    subscriptions.set(id, subscription);
   }
 
   async function init() {
@@ -433,34 +403,6 @@ export function createIndexer<
       }
 
       logger.info(`Loaded ${subscriptions.size} subscriptions from store`);
-    }
-
-    // add initial subscriptions only if none were loaded from storage
-    if (subscriptions.size === 0) {
-      for (const contractName in contracts) {
-        const contract = contracts[contractName];
-
-        if (contract.subscriptions === undefined) {
-          continue;
-        }
-
-        const sources = [];
-
-        if (Array.isArray(contract.subscriptions)) {
-          sources.push(...contract.subscriptions);
-        } else {
-          sources.push(contract.subscriptions);
-        }
-
-        for (const source of sources) {
-          subscribeToContract({
-            contract: contractName,
-            address: source.address,
-            fromBlock: source.fromBlock,
-            toBlock: source.toBlock,
-          });
-        }
-      }
     }
   }
 
@@ -499,7 +441,7 @@ export function createIndexer<
     }
 
     const data = encodeFunctionData({
-      abi: contract.abi as Abi,
+      abi: contract as Abi,
       functionName: args.functionName as string,
       args: args.args as unknown[],
     });
@@ -541,93 +483,89 @@ export function createIndexer<
     }
 
     return decodeFunctionResult({
-      abi: contract.abi as Abi,
+      abi: contract as Abi,
       functionName: args.functionName as string,
       data: result,
     }) as ReadContractReturn<TAbis[TContractName], TFunctionName>;
   }
 
-  return {
-    on(eventName, listener) {
-      eventEmitter.on(eventName, listener);
-    },
+  return Object.setPrototypeOf(
+    {
+      context: config.context,
+      subscribeToContract,
+      stop,
 
-    off(eventName, listener) {
-      eventEmitter.off(eventName, listener);
-    },
+      readContract,
 
-    context: config.context,
-    subscribeToContract,
-    stop,
+      watch() {
+        const initPromise =
+          state.type === "initial" ? init() : Promise.resolve();
 
-    readContract,
+        initPromise
+          .then(() => {
+            if (state.type === "running") {
+              throw new Error("Indexer is already running");
+            }
 
-    watch() {
-      const initPromise = state.type === "initial" ? init() : Promise.resolve();
+            logger.trace(`Watching chain for events`);
 
-      initPromise
-        .then(() => {
-          if (state.type === "running") {
-            throw new Error("Indexer is already running");
-          }
+            state = {
+              type: "running",
+              targetBlock: "latest",
+              // eslint-disable-next-line @typescript-eslint/no-empty-function
+              onStop: () => {},
+              onError: (error) => {
+                eventEmitter.emit("error", error);
+              },
+              pollTimeout: setTimeout(poll, 0),
+            };
 
-          logger.trace(`Watching chain for events`);
+            eventEmitter.emit("started");
+          })
+          .catch((error) => {
+            eventEmitter.emit("error", error);
+          });
+      },
 
+      async indexToBlock(target: ToBlock): Promise<void> {
+        if (state.type === "initial") {
+          await init();
+        }
+
+        if (state.type === "running") {
+          throw new Error("Indexer is already running");
+        }
+
+        let targetBlock: bigint;
+
+        if (target === "latest") {
+          targetBlock = await rpc.getLastBlockNumber();
+        } else {
+          targetBlock = target;
+        }
+
+        logger.trace(`Indexing to block ${targetBlock}`);
+
+        return new Promise((resolve, reject) => {
           state = {
             type: "running",
-            targetBlock: "latest",
-            // eslint-disable-next-line @typescript-eslint/no-empty-function
-            onStop: () => {},
+            targetBlock: targetBlock,
+            onStop: () => {
+              resolve();
+            },
             onError: (error) => {
               eventEmitter.emit("error", error);
+              stop();
+              reject();
             },
             pollTimeout: setTimeout(poll, 0),
           };
-
           eventEmitter.emit("started");
-        })
-        .catch((error) => {
-          eventEmitter.emit("error", error);
         });
+      },
     },
-
-    async indexToBlock(target: ToBlock) {
-      if (state.type === "initial") {
-        await init();
-      }
-
-      if (state.type === "running") {
-        throw new Error("Indexer is already running");
-      }
-
-      let targetBlock: bigint;
-
-      if (target === "latest") {
-        targetBlock = await rpc.getLastBlockNumber();
-      } else {
-        targetBlock = target;
-      }
-
-      logger.trace(`Indexing to block ${targetBlock}`);
-
-      return new Promise((resolve, reject) => {
-        state = {
-          type: "running",
-          targetBlock: targetBlock,
-          onStop: () => {
-            resolve();
-          },
-          onError: (error) => {
-            eventEmitter.emit("error", error);
-            stop();
-            reject();
-          },
-          pollTimeout: setTimeout(poll, 0),
-        };
-        eventEmitter.emit("started");
-      });
-    },
-  };
+    eventEmitter
+  );
 }
 
 function createRpcClientFromConfig(args: {

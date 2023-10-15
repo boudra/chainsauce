@@ -1,7 +1,7 @@
 import { decodeEventLog, fromHex, getAddress } from "viem";
 
-import { Abi, AbiEvent } from "abitype";
-import { Event, EventHandler, Hex, ToBlock } from "@/types";
+import { Abi } from "abitype";
+import { Event, Hex, ToBlock } from "@/types";
 import { Logger } from "@/logger";
 import { JsonRpcRangeTooWideError, Log, RpcClient } from "@/rpc";
 import { SubscriptionStore } from "@/subscriptionStore";
@@ -12,10 +12,6 @@ export type Subscription = {
   abi: Abi;
   contractName: string;
   contractAddress: `0x${string}`;
-  topic: `0x${string}`;
-  eventName: string;
-  eventHandler: EventHandler | null;
-  eventAbi: AbiEvent;
   toBlock: ToBlock;
   fromBlock: bigint;
   fetchedToBlock: bigint;
@@ -194,10 +190,7 @@ export async function getSubscriptionEvents(args: {
     targetBlock,
   });
 
-  const fetchRequests: Record<
-    string,
-    { from: bigint; to: bigint; subscriptions: Subscription[] }
-  > = {};
+  const fetchPromises = [];
 
   for (const { from, to, subscription } of outdatedSubscriptions) {
     let finalFetchFromBlock = from;
@@ -207,7 +200,6 @@ export async function getSubscriptionEvents(args: {
       const result = await cache.getEvents({
         chainId,
         address: subscription.contractAddress,
-        topic: subscription.topic,
         fromBlock: from,
         toBlock: to,
       });
@@ -225,41 +217,19 @@ export async function getSubscriptionEvents(args: {
       }
     }
 
-    // group subscriptions by fromBlock and toBlock to reduce the number of
-    // requests to the RPC endpoint
-    const group = `${finalFetchFromBlock}:${to}:${subscription.contractAddress}`;
-
-    fetchRequests[group] = fetchRequests[group] ?? {
-      from: finalFetchFromBlock,
-      to: to,
-      subscriptions: [],
-    };
-
-    fetchRequests[group].subscriptions.push(subscription);
-  }
-
-  const fetchPromises = [];
-
-  for (const batch of Object.values(fetchRequests)) {
-    const address = batch.subscriptions[0].contractAddress;
-    const topics = batch.subscriptions.map((s) => s.topic);
-
     const promise = fetchLogsWithRetry({
       rpc,
-      address,
-      fromBlock: batch.from,
-      toBlock: batch.to,
-      topics: [topics],
+      address: subscription.contractAddress,
+      fromBlock: finalFetchFromBlock,
+      toBlock: to,
+      topics: [],
       logger,
       onLogs: async ({ from: chunkFromBlock, to: chunkToBlock, logs }) => {
         const events: Event[] = [];
 
         for (const log of logs) {
           const logAddress = getAddress(log.address);
-          const subscription = getSubscription(
-            subscriptions,
-            `${logAddress}:${log.topics[0]}`
-          );
+          const subscription = getSubscription(subscriptions, logAddress);
 
           if (subscription === undefined) {
             continue;
@@ -282,7 +252,7 @@ export async function getSubscriptionEvents(args: {
           const blockNumber = fromHex(log.blockNumber, "bigint");
 
           const event: Event = {
-            name: subscription.eventName,
+            name: parsedEvent.eventName,
             params: parsedEvent.args,
             address: logAddress,
             topic: log.topics[0],
@@ -298,8 +268,7 @@ export async function getSubscriptionEvents(args: {
         if (cache) {
           await cache.insertEvents({
             chainId,
-            topics: topics,
-            address: address,
+            address: subscription.contractAddress,
             fromBlock: chunkFromBlock,
             toBlock: chunkToBlock,
             events,

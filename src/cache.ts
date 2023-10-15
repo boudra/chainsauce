@@ -5,14 +5,13 @@ export interface Cache {
     chainId: number;
     events: Event[];
     address: Hex;
-    topics: Hex[];
     fromBlock: bigint;
     toBlock: bigint;
   }): Promise<void>;
   getEvents(args: {
     chainId: number;
     address: Hex;
-    topic: Hex;
+    topic0?: Hex;
     fromBlock: bigint;
     toBlock: bigint;
   }): Promise<{ fromBlock: bigint; toBlock: bigint; events: Event[] } | null>;

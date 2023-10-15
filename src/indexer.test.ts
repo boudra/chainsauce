@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import { buildIndexer, ToBlock, Hex, Log, Event } from "@/index";
+import { createIndexer, ToBlock, Hex, Log, Event } from "@/index";
 import { createSqliteCache } from "@/cache/sqlite";
 import { createSqliteSubscriptionStore } from "@/subscriptionStore";
 import { RpcClient } from "@/rpc";
@@ -190,16 +190,17 @@ describe("counter contract", () => {
   });
 
   test("index to latest", async () => {
-    const indexer = buildIndexer()
-      .chain({ name: "test", id: 1, rpc: rpcClient })
-      .contracts(Contracts)
-      .events({
-        Counter: {
-          Increment: handleIncrement,
-          Decrement: handleDecrement,
-        },
-      })
-      .build();
+    const indexer = createIndexer({
+      chain: {
+        name: "test",
+        id: 1,
+        rpc: rpcClient,
+      },
+      contracts: Contracts,
+    });
+
+    indexer.on("Counter:Increment", handleIncrement);
+    indexer.on("Counter:Decrement", handleDecrement);
 
     indexer.subscribeToContract({
       contract: "Counter",
@@ -219,24 +220,72 @@ describe("counter contract", () => {
     });
   });
 
-  test("live indexing of new blocks", async () => {
-    const indexer = buildIndexer()
-      .chain({ name: "test", id: 1, rpc: rpcClient })
-      .contracts(Contracts)
-      .eventPollIntervalMs(0)
-      .events({
-        Counter: {
-          Increment: handleIncrement,
-          Decrement: handleDecrement,
-        },
-      })
-      .build();
+  test("watch mode error handling", async () => {
+    const indexer = createIndexer({
+      chain: {
+        name: "test",
+        id: 1,
+        rpc: rpcClient,
+      },
+      contracts: Contracts,
+    });
 
-    indexer.on("progress", ({ currentBlock }) => {
-      if (currentBlock === 0n) {
-        throw new Error("error");
+    indexer.on("Counter:Increment", async (args) => {
+      await handleIncrement(args);
+      throw new Error("error");
+    });
+    indexer.on("Counter:Decrement", handleDecrement);
+
+    const errorHandler = vi.fn();
+
+    indexer.on("error", errorHandler);
+
+    indexer.on("progress", async ({ currentBlock }) => {
+      if (currentBlock === 2n) {
+        indexer.stop();
       }
+    });
 
+    await new Promise<void>((resolve) => {
+      indexer.on("stopped", () => {
+        expect(state.events).toHaveLength(6);
+        expect(state.counters).toEqual({
+          "0x0000000000000000000000000000000000000001": 2n,
+          "0x0000000000000000000000000000000000000002": 0n,
+        });
+        resolve();
+      });
+
+      indexer.subscribeToContract({
+        contract: "Counter",
+        address: "0x0000000000000000000000000000000000000001",
+      });
+
+      indexer.subscribeToContract({
+        contract: "Counter",
+        address: "0x0000000000000000000000000000000000000002",
+      });
+
+      indexer.watch();
+    });
+    expect(errorHandler).toHaveBeenCalledTimes(4);
+  });
+
+  test("live indexing of new blocks", async () => {
+    const indexer = createIndexer({
+      eventPollDelayMs: 0,
+      chain: {
+        name: "test",
+        id: 1,
+        rpc: rpcClient,
+      },
+      contracts: Contracts,
+    });
+
+    indexer.on("Counter:Increment", handleIncrement);
+    indexer.on("Counter:Decrement", handleDecrement);
+
+    indexer.on("progress", async ({ currentBlock }) => {
       // when we reach block 1, we add a new block to the chain
       if (currentBlock === 2n) {
         blocks.push({
@@ -262,10 +311,6 @@ describe("counter contract", () => {
       }
     });
 
-    const errorHandler = vi.fn();
-
-    indexer.on("error", errorHandler);
-
     await new Promise<void>((resolve) => {
       indexer.on("stopped", () => {
         expect(state.events).toHaveLength(7);
@@ -288,21 +333,20 @@ describe("counter contract", () => {
 
       indexer.watch();
     });
-
-    expect(errorHandler).toHaveBeenCalledTimes(1);
   });
 
   test("resumable index with the same indexer instance", async () => {
-    const indexer = buildIndexer()
-      .chain({ name: "test", id: 1, rpc: rpcClient })
-      .contracts(Contracts)
-      .events({
-        Counter: {
-          Increment: handleIncrement,
-          Decrement: handleDecrement,
-        },
-      })
-      .build();
+    const indexer = createIndexer({
+      chain: {
+        name: "test",
+        id: 1,
+        rpc: rpcClient,
+      },
+      contracts: Contracts,
+    });
+
+    indexer.on("Counter:Increment", handleIncrement);
+    indexer.on("Counter:Decrement", handleDecrement);
 
     indexer.subscribeToContract({
       contract: "Counter",
@@ -333,21 +377,18 @@ describe("counter contract", () => {
     const getLogsMock = vi.fn().mockImplementation(rpcClient.getLogs);
     const cache = createSqliteCache(":memory:");
 
-    let indexer = buildIndexer()
-      .chain({
+    let indexer = createIndexer({
+      cache: cache,
+      chain: {
         name: "test",
         id: 1,
         rpc: { ...rpcClient, getLogs: getLogsMock },
-      })
-      .cache(cache)
-      .contracts(Contracts)
-      .events({
-        Counter: {
-          Increment: handleIncrement,
-          Decrement: handleDecrement,
-        },
-      })
-      .build();
+      },
+      contracts: Contracts,
+    });
+
+    indexer.on("Counter:Increment", handleIncrement);
+    indexer.on("Counter:Decrement", handleDecrement);
 
     indexer.subscribeToContract({
       contract: "Counter",
@@ -373,21 +414,18 @@ describe("counter contract", () => {
     state.events = [];
     state.counters = {};
 
-    indexer = buildIndexer()
-      .chain({
+    indexer = createIndexer({
+      cache: cache,
+      chain: {
         name: "test",
         id: 1,
         rpc: { ...rpcClient, getLogs: getLogsMock },
-      })
-      .cache(cache)
-      .contracts(Contracts)
-      .events({
-        Counter: {
-          Increment: handleIncrement,
-          Decrement: handleDecrement,
-        },
-      })
-      .build();
+      },
+      contracts: Contracts,
+    });
+
+    indexer.on("Counter:Increment", handleIncrement);
+    indexer.on("Counter:Decrement", handleDecrement);
 
     indexer.subscribeToContract({
       contract: "Counter",
@@ -413,17 +451,18 @@ describe("counter contract", () => {
     const subscriptionStore = createSqliteSubscriptionStore(":memory:");
 
     {
-      const indexer = buildIndexer()
-        .chain({ name: "test", id: 1, rpc: rpcClient })
-        .subscriptionStore(subscriptionStore)
-        .contracts(Contracts)
-        .events({
-          Counter: {
-            Increment: handleIncrement,
-            Decrement: handleDecrement,
-          },
-        })
-        .build();
+      const indexer = createIndexer({
+        subscriptionStore: subscriptionStore,
+        chain: {
+          name: "test",
+          id: 1,
+          rpc: rpcClient,
+        },
+        contracts: Contracts,
+      });
+
+      indexer.on("Counter:Increment", handleIncrement);
+      indexer.on("Counter:Decrement", handleDecrement);
 
       indexer.subscribeToContract({
         contract: "Counter",
@@ -442,7 +481,7 @@ describe("counter contract", () => {
         "0x0000000000000000000000000000000000000002": 0n,
       });
 
-      expect(await subscriptionStore.all()).toHaveLength(4);
+      expect(await subscriptionStore.all()).toHaveLength(2);
     }
 
     {
@@ -462,17 +501,18 @@ describe("counter contract", () => {
         ],
       });
 
-      const indexer = buildIndexer()
-        .chain({ name: "test", id: 1, rpc: rpcClient })
-        .subscriptionStore(subscriptionStore)
-        .contracts(Contracts)
-        .events({
-          Counter: {
-            Increment: handleIncrement,
-            Decrement: handleDecrement,
-          },
-        })
-        .build();
+      const indexer = createIndexer({
+        subscriptionStore: subscriptionStore,
+        chain: {
+          name: "test",
+          id: 1,
+          rpc: rpcClient,
+        },
+        contracts: Contracts,
+      });
+
+      indexer.on("Counter:Increment", handleIncrement);
+      indexer.on("Counter:Decrement", handleDecrement);
 
       indexer.subscribeToContract({
         contract: "Counter",
@@ -498,16 +538,17 @@ describe("counter contract", () => {
     const fromBlock = 2n;
     const toBlock = 2n;
 
-    const indexer = buildIndexer()
-      .chain({ name: "test", id: 1, rpc: rpcClient })
-      .contracts(Contracts)
-      .events({
-        Counter: {
-          Increment: handleIncrement,
-          Decrement: handleDecrement,
-        },
-      })
-      .build();
+    const indexer = createIndexer({
+      chain: {
+        name: "test",
+        id: 1,
+        rpc: rpcClient,
+      },
+      contracts: Contracts,
+    });
+
+    indexer.on("Counter:Increment", handleIncrement);
+    indexer.on("Counter:Decrement", handleDecrement);
 
     indexer.subscribeToContract({
       contract: "Counter",
@@ -533,16 +574,17 @@ describe("counter contract", () => {
   });
 
   test("no events if subscriptions are up to date", async () => {
-    const indexer = buildIndexer()
-      .chain({ name: "test", id: 1, rpc: rpcClient })
-      .contracts(Contracts)
-      .events({
-        Counter: {
-          Increment: handleIncrement,
-          Decrement: handleDecrement,
-        },
-      })
-      .build();
+    const indexer = createIndexer({
+      chain: {
+        name: "test",
+        id: 1,
+        rpc: rpcClient,
+      },
+      contracts: Contracts,
+    });
+
+    indexer.on("Counter:Increment", handleIncrement);
+    indexer.on("Counter:Decrement", handleDecrement);
 
     indexer.subscribeToContract({
       contract: "Counter",

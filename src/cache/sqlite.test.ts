@@ -31,7 +31,6 @@ describe("event store", () => {
       chainId: 1,
       events: [event],
       address: "0x123",
-      topics: ["0x456"],
       fromBlock: 100n,
       toBlock: 150n,
     });
@@ -40,7 +39,6 @@ describe("event store", () => {
       const storedEvents = await cache.getEvents({
         chainId: 1,
         address: "0x123",
-        topic: "0x456",
         fromBlock: 0n,
         toBlock: 150n,
       });
@@ -58,7 +56,7 @@ describe("event store", () => {
       const storedEvents = await cache.getEvents({
         chainId: 1,
         address: "0x123",
-        topic: "0x456",
+        topic0: "0x456",
         fromBlock: 0n,
         toBlock: 99n,
       });
@@ -70,7 +68,7 @@ describe("event store", () => {
       const storedEvents = await cache.getEvents({
         chainId: 1,
         address: "0x123",
-        topic: "0x456",
+        topic0: "0x456",
         fromBlock: 100n,
         toBlock: 101n,
       });
@@ -88,7 +86,7 @@ describe("event store", () => {
       const storedEvents = await cache.getEvents({
         chainId: 1,
         address: "0x123",
-        topic: "0x456",
+        topic0: "0x456",
         fromBlock: 0n,
         toBlock: 100n,
       });
@@ -123,7 +121,6 @@ describe("event store", () => {
       chainId: 1,
       events: eventsBatch1,
       address: "0x123",
-      topics: ["0x456"],
       fromBlock: 1n,
       toBlock: 2n,
     });
@@ -132,7 +129,6 @@ describe("event store", () => {
       chainId: 1,
       events: eventsBatch2,
       address: "0x123",
-      topics: ["0x456"],
       fromBlock: 3n,
       toBlock: 4n,
     });
@@ -140,7 +136,7 @@ describe("event store", () => {
     const storedEvents = await cache.getEvents({
       chainId: 1,
       address: "0x123",
-      topic: "0x456",
+      topic0: "0x456",
       fromBlock: 1n,
       toBlock: 5n,
     });
@@ -166,7 +162,6 @@ describe("event store", () => {
       chainId: 1,
       events: eventsBatch1,
       address: "0x123",
-      topics: ["0x456"],
       fromBlock: 1n,
       toBlock: 2n,
     });
@@ -175,7 +170,6 @@ describe("event store", () => {
       chainId: 1,
       events: eventsBatch2,
       address: "0x123",
-      topics: ["0x456"],
       fromBlock: 2n,
       toBlock: 4n,
     });
@@ -183,7 +177,7 @@ describe("event store", () => {
     const storedEvents = await cache.getEvents({
       chainId: 1,
       address: "0x123",
-      topic: "0x456",
+      topic0: "0x456",
       fromBlock: 1n,
       toBlock: 5n,
     });
@@ -206,7 +200,6 @@ describe("event store", () => {
       chainId: 1,
       events: [makeEvent(1n)],
       address: "0x123",
-      topics: ["0x456"],
       fromBlock: 1n,
       toBlock: 2n,
     });
@@ -214,7 +207,7 @@ describe("event store", () => {
     const storedEvents = await cache.getEvents({
       chainId: 1,
       address: "0x123",
-      topic: "0x456",
+      topic0: "0x456",
       fromBlock: 3n,
       toBlock: 4n,
     });

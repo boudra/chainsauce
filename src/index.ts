@@ -9,7 +9,6 @@ export { Cache } from "@/cache";
 export { createSqliteCache } from "@/cache/sqlite";
 export { createSqliteSubscriptionStore } from "@/subscriptionStore";
 
-export { buildIndexer } from "@/builder";
 export { createIndexer, Indexer } from "@/indexer";
 
 export { UserEventHandlerArgs as EventHandlerArgs } from "@/indexer";

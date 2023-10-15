@@ -9,7 +9,7 @@ type EventRow = {
   name: string;
   params: string;
   address: Hex;
-  topic: Hex;
+  topic0: Hex;
   transactionHash: Hex;
   blockNumber: string;
   logIndex: number;
@@ -26,7 +26,7 @@ function initSqliteConnection(dbPath: string) {
     name TEXT,
     params TEXT,
     address TEXT,
-    topic TEXT,
+    topic0 TEXT,
     transactionHash TEXT,
     blockNumber INTEGER,
     logIndex INTEGER,
@@ -38,7 +38,6 @@ function initSqliteConnection(dbPath: string) {
   CREATE TABLE IF NOT EXISTS logRanges (
     chainId INTEGER,
     address TEXT,
-    topic TEXT,
     fromBlock INTEGER,
     toBlock INTEGER
   );
@@ -46,12 +45,12 @@ function initSqliteConnection(dbPath: string) {
 
   db.exec(
     `CREATE INDEX IF NOT EXISTS idx_events
-     ON events (chainId, address, topic, blockNumber, name, params, transactionHash, logIndex);`
+     ON events (chainId, address, blockNumber, name, params, transactionHash, logIndex);`
   );
 
   db.exec(
     `CREATE INDEX IF NOT EXISTS idx_logranges_search
-     ON logRanges (chainId, address, topic, fromBlock, toBlock);`
+     ON logRanges (chainId, address, fromBlock, toBlock);`
   );
 
   db.exec(`
@@ -67,27 +66,27 @@ function initSqliteConnection(dbPath: string) {
 `);
 
   const insertEventStmt = db.prepare(
-    `INSERT OR REPLACE INTO events (chainId, name, params, address, topic, transactionHash, blockNumber, logIndex)
+    `INSERT OR REPLACE INTO events (chainId, name, params, address, topic0, transactionHash, blockNumber, logIndex)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   );
 
   const findAdjacentRangesStmt = db.prepare(
     `SELECT fromBlock, toBlock
      FROM logRanges
-     WHERE chainId = ? AND address = ? AND topic = ?
+     WHERE chainId = ? AND address = ?
      AND toBlock >= ? - 1 AND fromBlock <= ? + 1`
   );
 
   const findRangesStmt = db.prepare(
     `SELECT fromBlock, toBlock FROM logRanges
-     WHERE chainId = ? AND address = ? AND topic = ?
+     WHERE chainId = ? AND address = ?
      AND ((fromBlock <= ? AND toBlock >= ?) OR (fromBlock <= ? AND toBlock >= ?))
      LIMIT 1`
   );
 
   const findEventsStmt = db.prepare(`
     SELECT * FROM events
-    WHERE chainId = ? AND address = ? AND topic = ? AND blockNumber >= ? AND blockNumber <= ?
+    WHERE chainId = ? AND address = ? AND blockNumber >= ? AND blockNumber <= ?
     `);
 
   return {
@@ -123,7 +122,7 @@ export function createSqliteCache(dbPath: string): Cache {
     }) {
       const { db, insertEventStmt, findAdjacentRangesStmt } = getConnection();
 
-      const { chainId, events, address, topics, fromBlock, toBlock } = args;
+      const { chainId, events, address, fromBlock, toBlock } = args;
 
       if (args.toBlock < args.fromBlock) {
         throw new Error("toBlock must be greater than or equal to fromBlock");
@@ -143,37 +142,34 @@ export function createSqliteCache(dbPath: string): Cache {
           );
         }
 
-        for (const topic of topics) {
-          const adjacentRanges = findAdjacentRangesStmt.all(
-            chainId,
-            address,
-            topic,
-            Number(fromBlock),
-            Number(toBlock)
-          ) as {
-            fromBlock: number;
-            toBlock: number;
-          }[];
+        const adjacentRanges = findAdjacentRangesStmt.all(
+          chainId,
+          address,
+          Number(fromBlock),
+          Number(toBlock)
+        ) as {
+          fromBlock: number;
+          toBlock: number;
+        }[];
 
-          let newFrom = Number(fromBlock);
-          let newTo = Number(toBlock);
+        let newFrom = Number(fromBlock);
+        let newTo = Number(toBlock);
 
-          for (const range of adjacentRanges) {
-            newFrom = Math.min(newFrom, range.fromBlock);
-            newTo = Math.max(newTo, range.toBlock);
-          }
-
-          // Remove old overlapping ranges
-          db.prepare(
-            `DELETE FROM logRanges WHERE chainId = ? AND address = ? AND topic = ? AND fromBlock >= ? AND toBlock <= ?`
-          ).run(chainId, address, topic, newFrom, newTo);
-
-          // Insert the new merged range
-          db.prepare(
-            `INSERT INTO logRanges (chainId, address, topic, fromBlock, toBlock)
-             VALUES (?, ?, ?, ?, ?)`
-          ).run(chainId, address, topic, newFrom, newTo);
+        for (const range of adjacentRanges) {
+          newFrom = Math.min(newFrom, range.fromBlock);
+          newTo = Math.max(newTo, range.toBlock);
         }
+
+        // Remove old overlapping ranges
+        db.prepare(
+          `DELETE FROM logRanges WHERE chainId = ? AND address = ? AND fromBlock >= ? AND toBlock <= ?`
+        ).run(chainId, address, newFrom, newTo);
+
+        // Insert the new merged range
+        db.prepare(
+          `INSERT INTO logRanges (chainId, address, fromBlock, toBlock)
+             VALUES (?, ?, ?, ?)`
+        ).run(chainId, address, newFrom, newTo);
       });
 
       transaction();
@@ -182,7 +178,7 @@ export function createSqliteCache(dbPath: string): Cache {
     async getEvents(args: {
       chainId: number;
       address: Hex;
-      topic: Hex;
+      topic0: Hex;
       fromBlock: bigint;
       toBlock: bigint;
     }): Promise<{
@@ -196,7 +192,6 @@ export function createSqliteCache(dbPath: string): Cache {
       const range = findRangesStmt.get(
         args.chainId,
         args.address,
-        args.topic,
         Number(args.toBlock),
         Number(args.fromBlock),
         Number(args.toBlock),
@@ -214,7 +209,6 @@ export function createSqliteCache(dbPath: string): Cache {
         const rows = findEventsStmt.all(
           args.chainId,
           args.address,
-          args.topic,
           fromBlock,
           toBlock
         ) as EventRow[];
@@ -226,7 +220,7 @@ export function createSqliteCache(dbPath: string): Cache {
             name: row.name,
             params: decodeJsonWithBigInts(row.params),
             address: row.address,
-            topic: row.topic,
+            topic: row.topic0,
             transactionHash: row.transactionHash,
             blockNumber: BigInt(row.blockNumber),
             logIndex: row.logIndex,

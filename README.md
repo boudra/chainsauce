@@ -22,36 +22,27 @@ $ npm install boudra/chainsauce#main
 Example:
 
 ```ts
-import { EventHandlerArgs, Indexer, buildIndexer } from "chainsauce";
+import { createIndexer} from "chainsauce";
 import { erc20ABI } from "./erc20ABI";
 
 const MyContracts = {
   ERC20: erc20ABI,
 };
 
-async function handleTransfer({
-  event,
-}: EventHandlerArgs<Indexer<typeof MyContracts>, "ERC20", "Transfer">) {
-  console.log("Transfer event:", event.params);
-}
-
-const indexer = buildIndexer()
-  .chain({
+const indexer = createIndexer({
+  chain: {
     name: "mainnet",
     id: 1,
     rpc: {
       url: "https://mainnet.infura.io/v3/...",
     },
-  })
-  // Define contract ABIs
-  .contracts(MyContracts)
-  // Define contract event handlers
-  .events({
-    ERC20: {
-      Transfer: handleTransfer,
-    },
-  })
-  .build();
+  },
+  contracts: MyContracts,
+});
+
+indexer.on("ERC20:Transfer", async ({ event }) => {
+  console.log("Transfer event:", event.params);
+});
 
 // Subscribe to deployed contracts
 indexer.subscribeToContract({
@@ -65,6 +56,7 @@ await indexer.indexToBlock("latest");
 // await indexer.indexToBlock(16000000n);
 // or, this will index to latest and watch for new blocks
 // await indexer.watch();
+
 ```
 
 ## Complete examples

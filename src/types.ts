@@ -40,12 +40,12 @@ export type ReadContractReturn<
 export type EventHandlerArgs<
   TAbis extends Record<string, Abi> = Record<string, Abi>,
   TContext = unknown,
-  TAbi extends Abi = Abi,
+  TAbi extends Abi = TAbis[keyof TAbis],
   N extends ExtractAbiEventNames<TAbi> = ExtractAbiEventNames<TAbi>
 > = {
   context: TContext;
   chainId: number;
-  event: N extends any
+  event: N extends unknown
     ? BaseEvent<
         N,
         GetEventArgs<
