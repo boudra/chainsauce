@@ -68,6 +68,35 @@ export interface RpcClient {
   }): Promise<Hex>;
 }
 
+export function createRpcClientFromConfig(args: {
+  concurrency?: number;
+  rpc: RpcClient | { url: string; fetch?: typeof globalThis.fetch };
+  logger: Logger;
+}): RpcClient {
+  const { rpc, logger } = args;
+
+  let client: RpcClient;
+
+  if ("url" in rpc) {
+    client = createRpcClient({
+      logger,
+      url: rpc.url,
+    });
+  } else if ("getLastBlockNumber" in rpc) {
+    client = {
+      getLastBlockNumber: rpc.getLastBlockNumber,
+      getLogs: rpc.getLogs,
+      readContract: rpc.readContract,
+    };
+  } else {
+    throw new Error("Invalid RPC options, please provide a URL or a client");
+  }
+
+  return createConcurrentRpcClient({
+    client,
+    concurrency: args.concurrency,
+  });
+}
 export function createConcurrentRpcClient(args: {
   client: RpcClient;
   concurrency?: number;

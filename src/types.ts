@@ -7,7 +7,6 @@ import {
   ExtractAbiFunctionNames,
 } from "abitype";
 import { GetEventArgs } from "viem";
-import type { CreateSubscriptionOptions } from "@/indexer";
 
 export type Hex = `0x${string}`;
 
@@ -68,9 +67,12 @@ export type EventHandlerArgs<
       functionName: TFunctionName;
     } & Omit<ReadContractParameters<TAbis, TContractName>, "blockNumber">
   ): Promise<ReadContractReturn<TAbis[TContractName], TFunctionName>>;
-  subscribeToContract: (
-    opts: Omit<CreateSubscriptionOptions<keyof TAbis>, "fromBlock">
-  ) => void;
+
+  subscribeToContract(options: {
+    contract: keyof TAbis;
+    address: string;
+    toBlock?: ToBlock;
+  }): void;
 };
 
 export type EventHandler<
@@ -125,3 +127,9 @@ export type Contract<
     | Partial<EventHandlers<TAbis, TContext, TAbi, N>>
     | ExtractAbiEventNames<TAbi>[];
 };
+
+export type UnionToIntersection<U> = (
+  U extends unknown ? (k: U) => void : never
+) extends (k: infer I) => void
+  ? I
+  : never;

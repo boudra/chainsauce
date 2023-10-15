@@ -126,7 +126,7 @@ async function fetchLogsWithRetry(args: {
   toBlock: bigint;
   topics: Hex[] | Hex[][];
   logger: Logger;
-  onLogs: (args: { from: bigint; to: bigint; logs: Log[] }) => void;
+  onLogs: (args: { from: bigint; to: bigint; logs: Log[] }) => Promise<void>;
 }) {
   const { onLogs, rpc, address, fromBlock, toBlock, topics, logger } = args;
 
@@ -149,7 +149,7 @@ async function fetchLogsWithRetry(args: {
         `Fetched ${logs.length} events ${cursor}-${pageToBlock} (${address})`
       );
 
-      onLogs({ logs, from: cursor, to: pageToBlock });
+      await onLogs({ logs, from: cursor, to: pageToBlock });
 
       cursor = pageToBlock + 1n;
 
@@ -235,11 +235,22 @@ export async function getSubscriptionEvents(args: {
             continue;
           }
 
-          const parsedEvent = decodeEventLog({
-            abi: subscription.abi,
-            data: log.data,
-            topics: log.topics,
-          });
+          let parsedEvent;
+
+          try {
+            parsedEvent = decodeEventLog({
+              abi: subscription.abi,
+              data: log.data,
+              topics: log.topics,
+            });
+          } catch (error) {
+            // event probably not in the ABI
+            // TODO: only try decoding if the event is in the ABI
+            logger.debug(
+              `Failed to decode event log ${logAddress} ${log.topics[0]}`
+            );
+            continue;
+          }
 
           if (
             log.transactionHash === null ||

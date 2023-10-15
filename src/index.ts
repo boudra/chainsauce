@@ -11,4 +11,4 @@ export { createSqliteSubscriptionStore } from "@/subscriptionStore";
 
 export { createIndexer, Indexer } from "@/indexer";
 
-export { UserEventHandlerArgs as EventHandlerArgs } from "@/indexer";
+export { UserEventHandlerArgs as EventHandlerArgs } from "@/userEventHandlerArgs";
