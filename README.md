@@ -65,7 +65,7 @@ indexer.on("events", async ({ event }) => {
 
 // -- Start indexing:
 
-// one off indexing
+// one off indexing, this will resolve when finished and reject if any error happens
 await indexer.indexToBlock("latest");
 
 // continuous or live indexing
