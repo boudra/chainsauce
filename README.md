@@ -19,12 +19,16 @@ $ npm install boudra/chainsauce#main
 
 ## Basic usage
 
-Create an indexer:
 
 ```ts
+import { erc20ABI } from "./erc20ABI.ts";
+
+// Define contracts
 const MyContracts = {
   ERC20: erc20ABI,
 };
+
+// Create an indexer:
 
 const indexer = createIndexer({
   chain: {
@@ -35,11 +39,9 @@ const indexer = createIndexer({
   },
   contracts: MyContracts,
 });
-```
 
-Subscribe to deployed contracts:
+// Subscribe to deployed contracts:
 
-```ts
 indexer.subscribeToContract({
   contract: "ERC20",
   address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
@@ -48,11 +50,9 @@ indexer.subscribeToContract({
   fromBlock: 18363594n,
   toBlock: "latest"
 });
-```
 
-Subscribe to events:
+// Attach event listeners:
 
-```ts
 // subscribe to a specific event
 indexer.on("ERC20:Approval", async ({ event }) => {
   console.log("Approval event:", event.params);
@@ -60,11 +60,36 @@ indexer.on("ERC20:Approval", async ({ event }) => {
 
 // subscribe to all events
 indexer.on("events", async ({ event }) => {
+  console.log("Event:", event.params);
+});
+
+// Start indexing
+
+// one off indexing
+await indexer.indexToBlock("latest");
+
+// continuous or live indexing
+indexer.on("error", (error) => {
+   console.error("whoops", error);
+});
+indexer.watch();
+
+// you can stop indexing like this:
+indexer.stop();
+```
+
+## Handler types
+
+Event handlers should be automatically inferred when used like this:
+
+```ts
+// subscribe to a specific event
+indexer.on("ERC20:Approval", async ({ event }) => {
   console.log("Approval event:", event.params);
 });
 ```
 
-Type an event handler:
+But if you need to split out event handler function to other files, you can type them like this;
 
 ```ts
 import { Indexer as ChainsauceIndexer } from "chainsauce";
@@ -84,6 +109,14 @@ async function handleTransfer({
 
 indexer.on("ERC20:Transfer", handleTransfer);
 ```
+
+## Using context
+
+TODO
+
+## Factory Contracts
+
+TODO
 
 ## Complete examples
 
