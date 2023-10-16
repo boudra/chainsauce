@@ -74,7 +74,7 @@ indexer.on("error", (error) => {
 });
 indexer.watch();
 
-// you can stop indexing like this:
+// when using `watch`, you can stop indexing anytime:
 indexer.stop();
 ```
 
