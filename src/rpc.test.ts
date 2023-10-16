@@ -1,22 +1,22 @@
 import { test, assert, expect, vi } from "vitest";
-import { Logger } from "@/logger";
-import { createRpcClient, JsonRpcError, JsonRpcRangeTooWideError } from "./rpc";
-
-const mockFetch = vi.fn();
-const mockLogger = new Logger();
+import {
+  createHttpRpcClient,
+  JsonRpcError,
+  JsonRpcRangeTooWideError,
+} from "./rpc";
 
 test("should get last block number", async () => {
-  mockFetch.mockResolvedValue({
+  const mockFetch = vi.fn().mockResolvedValue({
     status: 200,
     headers: new Headers({ "Content-Type": "application/json" }),
     json: async () => ({ result: "0x2A" }),
   });
 
-  const rpcClient = createRpcClient({
-    logger: mockLogger,
+  const rpcClient = createHttpRpcClient({
     url: "http://localhost",
     fetch: mockFetch,
   });
+
   const result = await rpcClient.getLastBlockNumber();
   expect(result).toBe(42n);
 
@@ -49,14 +49,13 @@ test("should get logs", async () => {
       transactionHash: "0xdef",
     },
   ];
-  mockFetch.mockResolvedValue({
+  const mockFetch = vi.fn().mockResolvedValue({
     status: 200,
     headers: new Headers({ "Content-Type": "application/json" }),
     json: async () => ({ result: fakeLogs }),
   });
 
-  const rpcClient = createRpcClient({
-    logger: mockLogger,
+  const rpcClient = createHttpRpcClient({
     url: "http://localhost",
     fetch: mockFetch,
   });
@@ -72,49 +71,62 @@ test("should get logs", async () => {
 });
 
 test("should throw JsonRpcError on error", async () => {
-  mockFetch.mockResolvedValue({
+  const mockFetch = vi.fn().mockResolvedValue({
     status: 200,
     headers: new Headers({ "Content-Type": "application/json" }),
     json: async () => ({ error: { message: "fail", code: -1, data: null } }),
   });
 
-  const rpcClient = createRpcClient({
-    logger: mockLogger,
+  const rpcClient = createHttpRpcClient({
     url: "http://localhost",
     fetch: mockFetch,
   });
 
-  try {
-    await rpcClient.getLastBlockNumber();
-    throw new Error("Should not reach this point");
-  } catch (err) {
-    assert.instanceOf(err, JsonRpcError);
-  }
+  const promise = rpcClient.getLastBlockNumber();
+  await expect(promise).rejects.toThrow(JsonRpcError);
+  expect(mockFetch).toHaveBeenCalledTimes(1);
 });
 
-test("should throw JsonRpcError on 500 error", async () => {
-  mockFetch.mockResolvedValue({
+test("should retry on 500 status", async () => {
+  const mockFetch = vi.fn().mockResolvedValue({
     status: 500,
     headers: new Headers({ "Content-Type": "application/json" }),
     json: async () => ({}),
   });
 
-  const rpcClient = createRpcClient({
-    logger: mockLogger,
+  const rpcClient = createHttpRpcClient({
     url: "http://localhost",
     fetch: mockFetch,
+    retryDelayMs: 0,
+    maxRetries: 4,
   });
 
-  try {
-    await rpcClient.getLastBlockNumber();
-    throw new Error("Should not reach this point");
-  } catch (err) {
-    assert.instanceOf(err, JsonRpcError);
-  }
+  const promise = rpcClient.getLastBlockNumber();
+  await expect(promise).rejects.toThrow(JsonRpcError);
+  expect(mockFetch).toHaveBeenCalledTimes(5);
+});
+
+test("should retry on 429 status", async () => {
+  const mockFetch = vi.fn().mockResolvedValue({
+    status: 429,
+    headers: new Headers({ "Content-Type": "application/json" }),
+    json: async () => ({}),
+  });
+
+  const rpcClient = createHttpRpcClient({
+    url: "http://localhost",
+    fetch: mockFetch,
+    retryDelayMs: 0,
+    maxRetries: 4,
+  });
+
+  const promise = rpcClient.getLastBlockNumber();
+  await expect(promise).rejects.toThrow(JsonRpcError);
+  expect(mockFetch).toHaveBeenCalledTimes(5);
 });
 
 test("should throw JsonRpcRangeTooWideError on Alchemy query error", async () => {
-  mockFetch.mockResolvedValue({
+  const mockFetch = vi.fn().mockResolvedValue({
     status: 200,
     headers: new Headers({ "Content-Type": "application/json" }),
     json: async () => ({
@@ -126,21 +138,17 @@ test("should throw JsonRpcRangeTooWideError on Alchemy query error", async () =>
     }),
   });
 
-  const rpcClient = createRpcClient({
-    logger: mockLogger,
+  const rpcClient = createHttpRpcClient({
     url: "http://localhost",
     fetch: mockFetch,
   });
 
-  try {
-    await rpcClient.getLogs({
-      address: "0x123",
-      topics: ["0x789"],
-      fromBlock: 1n,
-      toBlock: 42n,
-    });
-    throw new Error("Should not reach this point");
-  } catch (err) {
-    assert.instanceOf(err, JsonRpcRangeTooWideError);
-  }
+  const promise = rpcClient.getLogs({
+    address: "0x123",
+    topics: ["0x789"],
+    fromBlock: 1n,
+    toBlock: 42n,
+  });
+  await expect(promise).rejects.toThrow(JsonRpcRangeTooWideError);
+  expect(mockFetch).toHaveBeenCalledTimes(1);
 });

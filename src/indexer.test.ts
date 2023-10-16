@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { createIndexer, ToBlock, Hex, Log, Event } from "@/index";
 import { createSqliteCache } from "@/cache/sqlite";
 import { createSqliteSubscriptionStore } from "@/subscriptionStore";
-import { RpcClient } from "@/rpc";
+import { RpcClient, createHttpRpcClient } from "@/rpc";
 import { encodeEventTopics, zeroAddress } from "viem";
 
 const counterABI = [

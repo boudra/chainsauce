@@ -1,7 +1,7 @@
 import { Abi, ExtractAbiEventNames, ExtractAbiFunctionNames } from "abitype";
 import { decodeFunctionResult, encodeFunctionData, getAddress } from "viem";
 
-import { createRpcClientFromConfig, RpcClient } from "@/rpc";
+import { RpcClient } from "@/rpc";
 import { Cache } from "@/cache";
 import { Logger, LoggerBackend, LogLevel } from "@/logger";
 import { createEventQueue } from "@/eventQueue";
@@ -27,15 +27,7 @@ export type Config<TAbis extends Record<string, Abi>, TContext = unknown> = {
   contracts: TAbis;
   chain: {
     id: number;
-    rpcClient:
-      | RpcClient
-      | {
-          url: string;
-          fetch?: typeof globalThis.fetch;
-        };
-    maxRetries?: number;
-    maxConcurrentRequests?: number;
-    retryDelayMs?: number;
+    rpcClient: RpcClient;
     pollingIntervalMs?: number;
   };
   context?: TContext;
@@ -135,13 +127,7 @@ export function createIndexer<
 
   const logger = new Logger(logLevel, loggerBackend);
   const cache = config.cache ?? null;
-  const rpc = createRpcClientFromConfig({
-    maxConcurrentRequests: config.chain.maxConcurrentRequests ?? 10,
-    maxRetries: config.chain.maxRetries ?? 5,
-    retryDelayMs: config.chain.retryDelayMs ?? 1000,
-    client: config.chain.rpcClient,
-    logger,
-  });
+  const rpcClient = config.chain.rpcClient;
 
   let state: IndexerState = {
     type: "initial",
@@ -167,7 +153,7 @@ export function createIndexer<
 
       //  latest is a moving target
       if (state.targetBlock === "latest") {
-        targetBlock = await rpc.getLastBlockNumber();
+        targetBlock = await rpcClient.getLastBlockNumber();
       } else {
         targetBlock = state.targetBlock;
       }
@@ -176,7 +162,7 @@ export function createIndexer<
         chainId: config.chain.id,
         targetBlock,
         subscriptions,
-        rpc,
+        rpc: rpcClient,
         cache: cache,
         pushEvent(event) {
           eventQueue.queue(event);
@@ -368,7 +354,7 @@ export function createIndexer<
     }
 
     if (result === undefined) {
-      result = await rpc.readContract({
+      result = await rpcClient.readContract({
         functionName: args.functionName,
         data: data,
         address: args.address,
@@ -444,7 +430,7 @@ export function createIndexer<
         let targetBlock: bigint;
 
         if (target === "latest") {
-          targetBlock = await rpc.getLastBlockNumber();
+          targetBlock = await rpcClient.getLastBlockNumber();
         } else {
           targetBlock = target;
         }

@@ -1,7 +1,6 @@
 import fastq from "fastq";
 
-import { retry } from "@/retry";
-import { Logger } from "@/logger";
+import retry from "async-retry";
 import { Hex, ToBlock } from "@/types";
 
 export type Log = {
@@ -32,6 +31,7 @@ export class JsonRpcError extends Error {
         method: cause.method,
         params: cause.params,
         error: cause.errorResponse,
+        responseStatusCode: cause.responseStatusCode,
       })}`
     );
     this.cause = cause;
@@ -62,36 +62,7 @@ export interface RpcClient {
   }): Promise<Hex>;
 }
 
-export function createRpcClientFromConfig(args: {
-  maxConcurrentRequests: number;
-  maxRetries: number;
-  retryDelayMs: number;
-  client: RpcClient | { url: string; fetch?: typeof globalThis.fetch };
-  logger: Logger;
-}): RpcClient {
-  const { client: rpc, logger } = args;
-
-  let client: RpcClient;
-
-  if ("url" in rpc) {
-    client = createRpcClient({
-      logger,
-      url: rpc.url,
-    });
-  } else if ("getLastBlockNumber" in rpc) {
-    client = rpc;
-  } else {
-    throw new Error("Invalid RPC options, please provide a URL or a client");
-  }
-
-  return createConcurrentRpcClient({
-    client,
-    maxConcurrentRequests: args.maxConcurrentRequests,
-    maxRetries: args.maxRetries,
-    retryDelayMs: args.retryDelayMs,
-  });
-}
-export function createConcurrentRpcClient(args: {
+export function createConcurrentRpcClientWithRetry(args: {
   client: RpcClient;
   retryDelayMs: number;
   maxRetries: number;
@@ -101,25 +72,35 @@ export function createConcurrentRpcClient(args: {
 
   const queue = fastq.promise(async (task: () => Promise<unknown>) => {
     return retry(
-      async () => {
-        return await task();
-      },
-      {
-        maxRetries: args.maxRetries,
-        delay: args.retryDelayMs,
-        shouldRetry: (error) => {
-          if (error instanceof JsonRpcError) {
-            // retry on 429
-            if (error.cause.responseStatusCode === 429) {
-              return true;
-            }
-            // do not retry on all other Json-RPC errors
-            return false;
+      async (bail) => {
+        try {
+          return await task();
+        } catch (error) {
+          // do not retry if it's a non-500 or rate limit
+          if (
+            error instanceof JsonRpcError &&
+            error.cause.responseStatusCode !== 429 &&
+            error.cause.responseStatusCode !== 408 &&
+            error.cause.responseStatusCode !== 420 &&
+            error.cause.responseStatusCode < 500
+          ) {
+            bail(error);
+            return;
           }
 
-          // retry on other errors, e.g. network errors
-          return true;
-        },
+          // do not retry if the range is too wide
+          if (error instanceof JsonRpcRangeTooWideError) {
+            bail(error);
+            return;
+          }
+
+          throw error;
+        }
+      },
+      {
+        retries: args.maxRetries,
+        minTimeout: args.retryDelayMs,
+        maxTimeout: args.retryDelayMs,
       }
     );
   }, maxConcurrentRequests);
@@ -141,11 +122,31 @@ export function createConcurrentRpcClient(args: {
   };
 }
 
-export function createRpcClient(args: {
-  logger: Logger;
+export function createHttpRpcClient(args: {
+  retryDelayMs?: number;
+  maxRetries?: number;
+  maxConcurrentRequests?: number;
   url: string;
   fetch?: typeof globalThis.fetch;
-  concurrency?: number;
+}): RpcClient {
+  const retryDelayMs = args.retryDelayMs ?? 1000;
+  const maxConcurrentRequests = args.maxConcurrentRequests ?? 10;
+  const maxRetries = args.maxRetries ?? 5;
+
+  return createConcurrentRpcClientWithRetry({
+    client: createHttpRpcBaseClient({
+      url: args.url,
+      fetch: args.fetch,
+    }),
+    retryDelayMs,
+    maxRetries,
+    maxConcurrentRequests,
+  });
+}
+
+export function createHttpRpcBaseClient(args: {
+  url: string;
+  fetch?: typeof globalThis.fetch;
 }): RpcClient {
   const { url } = args;
 
