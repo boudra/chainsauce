@@ -59,7 +59,7 @@ indexer.on("ERC20:Approval", async ({ event }) => {
 });
 
 // subscribe to all events
-indexer.on("events", async ({ event }) => {
+indexer.on("event", async ({ event }) => {
   console.log("Event:", event.params);
 });
 
