@@ -35,7 +35,7 @@ export type Config<TAbis extends Record<string, Abi>, TContext = unknown> = {
         };
     maxRetries?: number;
     maxConcurrentRequests?: number;
-    delayBetweenRetries?: number;
+    retryDelayMs?: number;
     pollingIntervalMs?: number;
   };
   context?: TContext;
@@ -138,7 +138,7 @@ export function createIndexer<
   const rpc = createRpcClientFromConfig({
     maxConcurrentRequests: config.chain.maxConcurrentRequests ?? 10,
     maxRetries: config.chain.maxRetries ?? 5,
-    delayBetweenRetries: config.chain.delayBetweenRetries ?? 1000,
+    retryDelayMs: config.chain.retryDelayMs ?? 1000,
     client: config.chain.rpcClient,
     logger,
   });

@@ -65,7 +65,7 @@ export interface RpcClient {
 export function createRpcClientFromConfig(args: {
   maxConcurrentRequests: number;
   maxRetries: number;
-  delayBetweenRetries: number;
+  retryDelayMs: number;
   client: RpcClient | { url: string; fetch?: typeof globalThis.fetch };
   logger: Logger;
 }): RpcClient {
@@ -88,12 +88,12 @@ export function createRpcClientFromConfig(args: {
     client,
     maxConcurrentRequests: args.maxConcurrentRequests,
     maxRetries: args.maxRetries,
-    delayBetweenRetries: args.delayBetweenRetries,
+    retryDelayMs: args.retryDelayMs,
   });
 }
 export function createConcurrentRpcClient(args: {
   client: RpcClient;
-  delayBetweenRetries: number;
+  retryDelayMs: number;
   maxRetries: number;
   maxConcurrentRequests: number;
 }): RpcClient {
@@ -106,7 +106,7 @@ export function createConcurrentRpcClient(args: {
       },
       {
         maxRetries: args.maxRetries,
-        delay: args.delayBetweenRetries,
+        delay: args.retryDelayMs,
         shouldRetry: (error) => {
           if (error instanceof JsonRpcError) {
             // retry on 429
