@@ -78,7 +78,7 @@ indexer.watch();
 indexer.stop();
 ```
 
-## Handler types
+## Event handler types
 
 Event handlers should be automatically inferred when used like this:
 
