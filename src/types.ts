@@ -69,11 +69,14 @@ export type EventHandlerArgs<
     } & Omit<ReadContractParameters<TAbis, TContractName>, "blockNumber">
   ): Promise<ReadContractReturn<TAbis[TContractName], TFunctionName>>;
 
-  subscribeToContract(options: {
-    contract: keyof TAbis;
-    address: string;
-    toBlock?: ToBlock;
-  }): void;
+  subscribeToContract(
+    this: void,
+    options: {
+      contract: keyof TAbis;
+      address: string;
+      toBlock?: ToBlock;
+    }
+  ): void;
 };
 
 export type EventHandler<
