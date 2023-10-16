@@ -26,15 +26,21 @@ import { processEvents } from "@/eventProcessor";
 export type Config<TAbis extends Record<string, Abi>, TContext = unknown> = {
   contracts: TAbis;
   chain: {
-    name: string;
     id: number;
-    concurrency?: number;
-    rpc: RpcClient | { url: string; fetch?: typeof globalThis.fetch };
+    rpcClient:
+      | RpcClient
+      | {
+          url: string;
+          fetch?: typeof globalThis.fetch;
+        };
+    maxRetries?: number;
+    maxConcurrentRequests?: number;
+    delayBetweenRetries?: number;
+    pollingIntervalMs?: number;
   };
   context?: TContext;
   logLevel?: keyof typeof LogLevel;
   logger?: LoggerBackend;
-  eventPollDelayMs?: number;
   cache?: Cache | null;
   subscriptionStore?: SubscriptionStore;
 };
@@ -114,7 +120,7 @@ export function createIndexer<
   TContext = unknown
 >(config: Config<TAbis, TContext>): Indexer<TAbis, TContext> {
   const eventEmitter = new AsyncEventEmitter<IndexerEvents<TAbis, TContext>>();
-  const eventPollDelayMs = config.eventPollDelayMs ?? 1000;
+  const eventPollDelayMs = config.chain.pollingIntervalMs ?? 1000;
   const logLevel: LogLevel = LogLevel[config.logLevel ?? "warn"];
 
   if (logLevel === undefined) {
@@ -130,8 +136,10 @@ export function createIndexer<
   const logger = new Logger(logLevel, loggerBackend);
   const cache = config.cache ?? null;
   const rpc = createRpcClientFromConfig({
-    rpc: config.chain.rpc,
-    concurrency: config.chain.concurrency,
+    maxConcurrentRequests: config.chain.maxConcurrentRequests ?? 10,
+    maxRetries: config.chain.maxRetries ?? 5,
+    delayBetweenRetries: config.chain.delayBetweenRetries ?? 1000,
+    client: config.chain.rpcClient,
     logger,
   });
 

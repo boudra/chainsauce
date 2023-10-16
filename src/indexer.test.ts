@@ -192,9 +192,8 @@ describe("counter contract", () => {
   test("index to latest", async () => {
     const indexer = createIndexer({
       chain: {
-        name: "test",
         id: 1,
-        rpc: rpcClient,
+        rpcClient: rpcClient,
       },
       contracts: Contracts,
     });
@@ -223,9 +222,8 @@ describe("counter contract", () => {
   test("watch mode error handling", async () => {
     const indexer = createIndexer({
       chain: {
-        name: "test",
         id: 1,
-        rpc: rpcClient,
+        rpcClient: rpcClient,
       },
       contracts: Contracts,
     });
@@ -273,11 +271,10 @@ describe("counter contract", () => {
 
   test("live indexing of new blocks", async () => {
     const indexer = createIndexer({
-      eventPollDelayMs: 0,
       chain: {
-        name: "test",
         id: 1,
-        rpc: rpcClient,
+        pollingIntervalMs: 0,
+        rpcClient: rpcClient,
       },
       contracts: Contracts,
     });
@@ -338,9 +335,8 @@ describe("counter contract", () => {
   test("resumable index with the same indexer instance", async () => {
     const indexer = createIndexer({
       chain: {
-        name: "test",
         id: 1,
-        rpc: rpcClient,
+        rpcClient: rpcClient,
       },
       contracts: Contracts,
     });
@@ -380,9 +376,8 @@ describe("counter contract", () => {
     let indexer = createIndexer({
       cache: cache,
       chain: {
-        name: "test",
         id: 1,
-        rpc: { ...rpcClient, getLogs: getLogsMock },
+        rpcClient: { ...rpcClient, getLogs: getLogsMock },
       },
       contracts: Contracts,
     });
@@ -417,9 +412,8 @@ describe("counter contract", () => {
     indexer = createIndexer({
       cache: cache,
       chain: {
-        name: "test",
         id: 1,
-        rpc: { ...rpcClient, getLogs: getLogsMock },
+        rpcClient: { ...rpcClient, getLogs: getLogsMock },
       },
       contracts: Contracts,
     });
@@ -454,9 +448,8 @@ describe("counter contract", () => {
       const indexer = createIndexer({
         subscriptionStore: subscriptionStore,
         chain: {
-          name: "test",
           id: 1,
-          rpc: rpcClient,
+          rpcClient: rpcClient,
         },
         contracts: Contracts,
       });
@@ -504,9 +497,8 @@ describe("counter contract", () => {
       const indexer = createIndexer({
         subscriptionStore: subscriptionStore,
         chain: {
-          name: "test",
           id: 1,
-          rpc: rpcClient,
+          rpcClient: rpcClient,
         },
         contracts: Contracts,
       });
@@ -540,9 +532,8 @@ describe("counter contract", () => {
 
     const indexer = createIndexer({
       chain: {
-        name: "test",
         id: 1,
-        rpc: rpcClient,
+        rpcClient: rpcClient,
       },
       contracts: Contracts,
     });
@@ -576,9 +567,8 @@ describe("counter contract", () => {
   test("no events if subscriptions are up to date", async () => {
     const indexer = createIndexer({
       chain: {
-        name: "test",
         id: 1,
-        rpc: rpcClient,
+        rpcClient: rpcClient,
       },
       contracts: Contracts,
     });
