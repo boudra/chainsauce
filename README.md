@@ -83,8 +83,8 @@ indexer.stop();
 Event handlers should be automatically inferred when used like this:
 
 ```ts
-// subscribe to a specific event
 indexer.on("ERC20:Approval", async ({ event }) => {
+  // params here are inferred to be for the Approval event
   console.log("Approval event:", event.params);
 });
 ```
