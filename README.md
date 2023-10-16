@@ -11,52 +11,78 @@
 
 Chainsauce is a general-purpose Ethereum indexer that sources contract events to build easily queryable data.
 
-## How to use?
-
-Install the package:
+## Installation
 
 ```bash
 $ npm install boudra/chainsauce#main
 ```
 
-Example:
+## Basic usage
+
+Create an indexer:
 
 ```ts
-import { createIndexer} from "chainsauce";
-import { erc20ABI } from "./erc20ABI";
-
 const MyContracts = {
   ERC20: erc20ABI,
 };
 
 const indexer = createIndexer({
   chain: {
-    name: "mainnet",
     id: 1,
-    rpc: {
+    rpcClient: createHttpRpcClient({
       url: "https://mainnet.infura.io/v3/...",
-    },
+    }),
   },
   contracts: MyContracts,
 });
+```
 
-indexer.on("ERC20:Transfer", async ({ event }) => {
-  console.log("Transfer event:", event.params);
-});
+Subscribe to deployed contracts:
 
-// Subscribe to deployed contracts
+```ts
 indexer.subscribeToContract({
   contract: "ERC20",
   address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+
+  // optional
+  fromBlock: 18363594n,
+  toBlock: "latest"
+});
+```
+
+Subscribe to events:
+
+```ts
+// subscribe to a specific event
+indexer.on("ERC20:Approval", async ({ event }) => {
+  console.log("Approval event:", event.params);
 });
 
-// this will index to latest and return
-await indexer.indexToBlock("latest");
-// or index to a specific block number
-// await indexer.indexToBlock(16000000n);
-// or, this will index to latest and watch for new blocks
-// await indexer.watch();
+// subscribe to all events
+indexer.on("events", async ({ event }) => {
+  console.log("Approval event:", event.params);
+});
+```
 
+Type an event handler:
+
+```ts
+import { Indexer as ChainsauceIndexer } from "chainsauce";
+
+type MyContext = {
+  db: DatabaseConnection
+};
+
+type Indexer = ChainsauceIndexer<typeof MyContracts, MyContext>;
+
+async function handleTransfer({
+  event, context: { db }
+}: EventHandlerArgs<Indexer, "ERC20", "Transfer">) {
+  // db is a DatabaseConnection
+  console.log("Transfer event:", event.params);
+}
+
+indexer.on("ERC20:Transfer", handleTransfer);
 ```
 
 ## Complete examples
