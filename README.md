@@ -23,12 +23,12 @@ $ npm install boudra/chainsauce#main
 ```ts
 import { erc20ABI } from "./erc20ABI.ts";
 
-// Define contracts
+// -- Define contracts
 const MyContracts = {
   ERC20: erc20ABI,
 };
 
-// Create an indexer:
+// -- Create an indexer:
 
 const indexer = createIndexer({
   chain: {
@@ -40,7 +40,7 @@ const indexer = createIndexer({
   contracts: MyContracts,
 });
 
-// Subscribe to deployed contracts:
+// -- Subscribe to deployed contracts:
 
 indexer.subscribeToContract({
   contract: "ERC20",
@@ -51,7 +51,7 @@ indexer.subscribeToContract({
   toBlock: "latest"
 });
 
-// Attach event listeners:
+// -- Attach event listeners:
 
 // subscribe to a specific event
 indexer.on("ERC20:Approval", async ({ event }) => {
@@ -63,7 +63,7 @@ indexer.on("events", async ({ event }) => {
   console.log("Event:", event.params);
 });
 
-// Start indexing
+// -- Start indexing:
 
 // one off indexing
 await indexer.indexToBlock("latest");
@@ -110,11 +110,19 @@ async function handleTransfer({
 indexer.on("ERC20:Transfer", handleTransfer);
 ```
 
+## How to define ABIs
+
+TODO
+
 ## Using context
 
 TODO
 
 ## Factory Contracts
+
+TODO
+
+## Caching events and contract reads
 
 TODO
 
