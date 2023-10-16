@@ -9,7 +9,7 @@
 
 ![main check](https://github.com/boudra/chainsauce/actions/workflows/check.yml/badge.svg?branch=main)
 
-Chainsauce is a general-purpose Ethereum indexer that sources contract events to build easily queryable data.
+Chainsauce is a general-purpose Ethereum indexer that sources contract events from a JSON-RPC endpoint.
 
 ## Installation
 
