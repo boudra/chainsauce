@@ -70,6 +70,7 @@ indexer.subscribeToContract({
 await indexer.indexToBlock("latest");
 
 // continuous indexing, watches the chain for new events until stopped
+// errors will be emitted and will not stop indexing
 indexer.on("error", (error) => {
    console.error("whoops", error);
 });
