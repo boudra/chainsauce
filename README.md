@@ -64,20 +64,20 @@ indexer.subscribeToContract({
   toBlock: "latest"
 });
 
-// -- Start indexing:
+// -- One off indexing:
 
 // one off indexing, this will resolve when finished and reject if any error happens
 await indexer.indexToBlock("latest");
 
-// continuous indexing, watches the chain for new events until stopped
+// -- Continous indexing:
+
+// indexes to the latest block and watches the chain for new events
+// until stopped with `indexer.stop()`
 // errors will be emitted and will not stop indexing
 indexer.on("error", (error) => {
    console.error("whoops", error);
 });
 indexer.watch();
-
-// when using `watch`, you can stop indexing anytime:
-indexer.stop();
 ```
 
 ## Event handler types
