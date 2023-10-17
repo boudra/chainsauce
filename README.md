@@ -85,9 +85,9 @@ indexer.watch();
 Event handlers should be automatically inferred when used like this:
 
 ```ts
-indexer.on("ERC20:Approval", async ({ event }) => {
-  // params here are inferred to be for the Approval event
-  console.log("Approval event:", event.params);
+indexer.on("ERC20:Approval", async ({ event, context }) => {
+  // event is inferred to be an Approval event
+  // context is inferred to be the context passed into `createIndexer`
 });
 ```
 
@@ -100,13 +100,22 @@ type MyContext = {
   db: DatabaseConnection
 };
 
+const MyContracts = {
+  ERC20: erc20ABI,
+};
+
 type Indexer = ChainsauceIndexer<typeof MyContracts, MyContext>;
+
+const indexer: Indexer = createIndexer({
+   ...
+   context: { db: new DatabaseConnection() }
+});
 
 async function handleTransfer({
   event, context: { db }
 }: EventHandlerArgs<Indexer, "ERC20", "Transfer">) {
-  // db is a DatabaseConnection
-  console.log("Transfer event:", event.params);
+  // event is a Transfer event
+  // context is a MyContext type
 }
 
 indexer.on("ERC20:Transfer", handleTransfer);
@@ -114,19 +123,45 @@ indexer.on("ERC20:Transfer", handleTransfer);
 
 ## How to define ABIs
 
-TODO
+ABIs in Chainsauce are of type type [Abi in abitype](https://abitype.dev/api/types#abi).
 
-## Using context
+ABIs must be defined in Typescript if you want automatic typing of events and contract reads, make sure you cast ABIs `as const`:
 
-TODO
+```ts
+const myAbi = [
+  ...
+] as const;
+```
 
 ## Factory Contracts
 
-TODO
+You can subscribe to new deployed contracts in your event handlers by using the function `subscribeToContract`:
+
+```ts
+indexer.on("FactoryContract:ContractCreated", async ({ event, context, subscribeToContract }) => {
+  subscribeToContract({
+    contract: "MyContract",
+    address: event.params.contractAddress,
+
+    // optional
+    toBlock: "latest"
+  });
+});
+```
 
 ## Caching events and contract reads
 
-TODO
+Chainsauce comes with a cache to speed up reindexing, all you have to do is pass a cache when creating the indexer.
+
+Currently only a SQLite version is available, but other options are planned.
+
+```ts
+import { createIndexer, createSqliteCache } from "chainsauce";
+
+const indexer = createIndexer({
+  cache: createSqliteCache("./chainsauce.db"),
+});
+```
 
 ## Complete examples
 
