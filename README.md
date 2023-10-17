@@ -21,6 +21,7 @@ $ npm install boudra/chainsauce#main
 
 
 ```ts
+import { createIndexer, createHttpRpcClient } from "chainsauce";
 import { erc20ABI } from "./erc20ABI.ts";
 
 // -- Define contracts
@@ -40,17 +41,6 @@ const indexer = createIndexer({
   contracts: MyContracts,
 });
 
-// -- Subscribe to deployed contracts:
-
-indexer.subscribeToContract({
-  contract: "ERC20",
-  address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
-
-  // optional
-  fromBlock: 18363594n,
-  toBlock: "latest"
-});
-
 // -- Attach event listeners:
 
 // subscribe to a specific event
@@ -63,12 +53,23 @@ indexer.on("event", async ({ event }) => {
   console.log("Event:", event.params);
 });
 
+// -- Subscribe to deployed contracts:
+
+indexer.subscribeToContract({
+  contract: "ERC20",
+  address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+
+  // optional
+  fromBlock: 18363594n,
+  toBlock: "latest"
+});
+
 // -- Start indexing:
 
 // one off indexing, this will resolve when finished and reject if any error happens
 await indexer.indexToBlock("latest");
 
-// continuous or live indexing
+// continuous indexing, watches the chain for new events until stopped
 indexer.on("error", (error) => {
    console.error("whoops", error);
 });
