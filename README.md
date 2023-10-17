@@ -66,7 +66,7 @@ indexer.subscribeToContract({
 
 // -- One off indexing:
 
-// one off indexing, this will resolve when finished and reject if any error happens
+// one off indexing, this will resolve when finished or reject if any error happens
 await indexer.indexToBlock("latest");
 
 // -- Continous indexing:
