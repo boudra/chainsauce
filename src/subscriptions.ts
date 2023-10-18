@@ -145,10 +145,6 @@ async function fetchLogsWithRetry(args: {
         topics: topics,
       });
 
-      logger.trace(
-        `Fetched ${logs.length} events ${cursor}-${pageToBlock} (${address})`
-      );
-
       await onLogs({ logs, from: cursor, to: pageToBlock });
 
       cursor = pageToBlock + 1n;
@@ -161,7 +157,7 @@ async function fetchLogsWithRetry(args: {
     } catch (error) {
       // range too wide or too many logs returned, split in half and retry
       if (error instanceof JsonRpcRangeTooWideError) {
-        logger.warn(
+        logger.trace(
           `Range too wide ${cursor}-${pageToBlock}, retrying with smaller range`
         );
         steps = steps * 2n;
