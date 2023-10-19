@@ -87,7 +87,8 @@ class JsonCollection<T extends Document> implements Collection<T> {
     const { data } = await this.loadingPromise;
 
     this.savingPromise = fs
-      .writeFile(this.filename, encodeJsonWithBigInts(data))
+      .writeFile(`${this.filename}.write`, encodeJsonWithBigInts(data))
+      .then(() => fs.rename(`${this.filename}.write`, this.filename))
       .finally(() => {
         this.savingPromise = null;
         this.loadingPromise = null;
