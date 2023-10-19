@@ -121,8 +121,8 @@ export function createIndexer<
 
   const loggerBackend: LoggerBackend =
     config.logger ??
-    ((level, ...data: unknown[]) => {
-      console.log(`[${level}]`, ...data);
+    ((level, msg, data) => {
+      console.log(`[${level}]`, msg, JSON.stringify(data));
     });
 
   const logger = new Logger(logLevel, loggerBackend);
