@@ -1,6 +1,5 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { encodeJsonWithBigInts, decodeJsonWithBigInts } from "@/utils";
 
 import { Collection, Database, Document } from "@/storage";
 import debounce from "@/debounce.js";
@@ -18,15 +17,11 @@ function buildIndex<T extends Document>(data: T[]): { [key: string]: number } {
 type Index = { [key: string]: number };
 
 async function loadJsonData<T extends Document>(
-  filename: string
+  filename: string,
+  decodeJson: (data: string) => unknown = JSON.parse
 ): Promise<{ data: T[]; index: Index }> {
-  let data: T[] = [];
-  let index: Index = {};
-
   try {
-    const fileContents = await fs.readFile(filename, "utf-8");
-    data = decodeJsonWithBigInts(fileContents);
-    index = buildIndex(data);
+    await fs.stat(filename);
   } catch (err) {
     if (
       typeof err === "object" &&
@@ -34,11 +29,16 @@ async function loadJsonData<T extends Document>(
       "code" in err &&
       err.code === "ENOENT"
     ) {
-      await fs.mkdir(path.dirname(filename), { recursive: true });
-    } else {
-      throw err;
+      // file not found, return empty data
+      return { data: [], index: {} };
     }
+
+    throw err;
   }
+
+  const fileContents = await fs.readFile(filename, "utf-8");
+  const data = decodeJson(fileContents) as T[];
+  const index = buildIndex(data);
 
   return { data, index };
 }
@@ -48,17 +48,21 @@ class JsonCollection<T extends Document> implements Collection<T> {
   private loadingPromise: Promise<{ data: T[]; index: Index }> | null = null;
   private savingPromise: Promise<void> | null = null;
   private debouncedSave: ReturnType<typeof debounce>;
+  private encodeJson: (data: unknown) => string;
+  private decodeJson: (data: string) => unknown;
 
-  constructor(filename: string, writeDelay: number) {
+  constructor(filename: string, options: Options) {
     this.filename = filename;
-    this.debouncedSave = debounce(() => this.save(), writeDelay);
+    this.encodeJson = options.encodeJson ?? JSON.stringify;
+    this.decodeJson = options.decodeJson ?? JSON.parse;
+    this.debouncedSave = debounce(() => this.save(), options.writeDelay ?? 0);
   }
 
-  private async queueTask<TReturn>(
-    task: (data: { data: T[]; index: Index }) => Promise<TReturn>
+  private async executeOperation<TReturn>(
+    op: (data: { data: T[]; index: Index }) => Promise<TReturn>
   ): Promise<TReturn> {
     const { data, index } = await this.load();
-    const result = await task({ data, index });
+    const result = await op({ data, index });
     this.debouncedSave(data);
     return result;
   }
@@ -66,7 +70,7 @@ class JsonCollection<T extends Document> implements Collection<T> {
   private async load(): Promise<{ data: T[]; index: Index }> {
     this.debouncedSave.cancel();
     // Wait for any ongoing save operation to complete
-    if (this.savingPromise) {
+    if (this.savingPromise !== null) {
       await this.savingPromise;
     }
 
@@ -74,7 +78,7 @@ class JsonCollection<T extends Document> implements Collection<T> {
       return this.loadingPromise;
     }
 
-    this.loadingPromise = loadJsonData(this.filename);
+    this.loadingPromise = loadJsonData(this.filename, this.decodeJson);
 
     return this.loadingPromise;
   }
@@ -87,7 +91,8 @@ class JsonCollection<T extends Document> implements Collection<T> {
     const { data } = await this.loadingPromise;
 
     this.savingPromise = fs
-      .writeFile(`${this.filename}.write`, encodeJsonWithBigInts(data))
+      .mkdir(path.dirname(this.filename), { recursive: true })
+      .then(() => fs.writeFile(`${this.filename}.write`, this.encodeJson(data)))
       .then(() => fs.rename(`${this.filename}.write`, this.filename))
       .finally(() => {
         this.savingPromise = null;
@@ -102,24 +107,22 @@ class JsonCollection<T extends Document> implements Collection<T> {
       throw new Error("Document must be an object");
     }
 
-    return this.queueTask(async ({ data, index }) => {
+    return this.executeOperation(async ({ data, index }) => {
       data.push(document);
       index[document.id] = data.length - 1;
-
-      this.debouncedSave();
 
       return document;
     });
   }
 
   async findById(id: string): Promise<T | null> {
-    return this.queueTask(async ({ data, index }) => {
+    return this.executeOperation(async ({ data, index }) => {
       return data[index[id]] ?? null;
     });
   }
 
   async updateById(id: string, fun: (doc: T) => T): Promise<T | null> {
-    return this.queueTask(async ({ data, index }) => {
+    return this.executeOperation(async ({ data, index }) => {
       if (index[id] === undefined) {
         return null;
       }
@@ -133,7 +136,7 @@ class JsonCollection<T extends Document> implements Collection<T> {
 
   // returns true it inserted a new record
   async upsertById(id: string, fun: (doc: T | null) => T): Promise<boolean> {
-    return this.queueTask(async ({ data, index }) => {
+    return this.executeOperation(async ({ data, index }) => {
       const isNewDocument = index[id] === undefined;
 
       if (isNewDocument) {
@@ -150,7 +153,7 @@ class JsonCollection<T extends Document> implements Collection<T> {
   }
 
   async all(): Promise<T[]> {
-    return this.queueTask(async ({ data }) => {
+    return this.executeOperation(async ({ data }) => {
       return data;
     });
   }
@@ -159,6 +162,8 @@ class JsonCollection<T extends Document> implements Collection<T> {
 export interface Options {
   dir: string;
   writeDelay?: number;
+  encodeJson?: (data: unknown) => string;
+  decodeJson?: (data: string) => unknown;
 }
 
 export function createJsonDatabase(options: Options): Database {
@@ -166,13 +171,9 @@ export function createJsonDatabase(options: Options): Database {
 
   return {
     collection<T extends Document>(name: string): Collection<T> {
-      if (!collections[name]) {
+      if (collections[name] === undefined) {
         const filename = path.join(options.dir, `${name}.json`);
-
-        collections[name] = new JsonCollection(
-          filename,
-          options.writeDelay ?? 0
-        );
+        collections[name] = new JsonCollection(filename, options);
       }
 
       return collections[name] as Collection<T>;
