@@ -27,7 +27,7 @@ async function loadJsonData<T extends Document>(
       typeof err === "object" &&
       err !== null &&
       "code" in err &&
-      err.code !== "ENOENT"
+      err.code === "ENOENT"
     ) {
       // file not found, return empty data
       return { data: [], index: {} };
