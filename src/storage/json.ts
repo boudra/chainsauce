@@ -23,7 +23,17 @@ async function loadJsonData<T extends Document>(
   try {
     await fs.stat(filename);
   } catch (err) {
-    return { data: [], index: {} };
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      err.code !== "ENOENT"
+    ) {
+      // file not found, return empty data
+      return { data: [], index: {} };
+    }
+
+    throw err;
   }
 
   const fileContents = await fs.readFile(filename, "utf-8");
