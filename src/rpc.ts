@@ -128,6 +128,11 @@ export function createHttpRpcClient(args: {
   maxConcurrentRequests?: number;
   url: string;
   fetch?: typeof globalThis.fetch;
+  onRequest?: (request: {
+    method: string;
+    params: unknown;
+    url: string;
+  }) => void;
 }): RpcClient {
   const retryDelayMs = args.retryDelayMs ?? 1000;
   const maxConcurrentRequests = args.maxConcurrentRequests ?? 10;
@@ -137,6 +142,7 @@ export function createHttpRpcClient(args: {
     client: createHttpRpcBaseClient({
       url: args.url,
       fetch: args.fetch,
+      onRequest: args.onRequest,
     }),
     retryDelayMs,
     maxRetries,
@@ -147,6 +153,11 @@ export function createHttpRpcClient(args: {
 export function createHttpRpcBaseClient(args: {
   url: string;
   fetch?: typeof globalThis.fetch;
+  onRequest?: (request: {
+    method: string;
+    params: unknown;
+    url: string;
+  }) => void;
 }): RpcClient {
   const { url } = args;
 
@@ -159,6 +170,10 @@ export function createHttpRpcBaseClient(args: {
       method,
       params: params,
     });
+
+    if (args.onRequest !== undefined) {
+      args.onRequest({ method, params, url });
+    }
 
     const response = await fetch(url, {
       method: "POST",
