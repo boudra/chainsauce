@@ -21,6 +21,7 @@
   "author": "Mohamed Boudra",
   "license": "MIT",
   "dependencies": {
+    "@types/pg": "^8.10.9",
     "@types/uuid": "^9.0.4",
     "abitype": "^0.8.11",
     "async-retry": "^1.3.3",
