@@ -9,6 +9,7 @@ import { Cache } from "@/cache";
 
 export type Subscription = {
   id: string;
+  chainId: number;
   abi: Abi;
   contractName: string;
   contractAddress: `0x${string}`;
@@ -67,6 +68,7 @@ export async function saveSubscriptionsToStore(
   for (const subscription of subscriptions.values()) {
     const subscriptionItem = {
       id: subscription.id,
+      chainId: subscription.chainId,
       contractName: subscription.contractName,
       contractAddress: subscription.contractAddress,
       fromBlock: subscription.fromBlock,
@@ -225,7 +227,10 @@ export async function getSubscriptionEvents(args: {
 
         for (const log of logs) {
           const logAddress = getAddress(log.address);
-          const subscription = getSubscription(subscriptions, logAddress);
+          const subscription = getSubscription(
+            subscriptions,
+            `${chainId}-${logAddress}`
+          );
 
           if (subscription === undefined) {
             continue;

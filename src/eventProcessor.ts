@@ -43,7 +43,10 @@ export async function processEvents<
   let indexedToBlock = findLowestIndexedBlock(subscriptions) ?? -1n;
 
   for (const event of eventQueue.drain()) {
-    const subscription = getSubscription(subscriptions, event.address);
+    const subscription = getSubscription(
+      subscriptions,
+      `${chainId}-${event.address}`
+    );
 
     if (
       event.blockNumber === subscription.indexedToBlock &&

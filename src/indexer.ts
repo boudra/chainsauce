@@ -258,12 +258,13 @@ export function createIndexer<
       } from ${subscribeOptions.fromBlock ?? 0}`
     );
 
-    const id = address;
+    const id = `${config.chain.id}-${address}`;
 
     const fromBlock = subscribeOptions.fromBlock ?? 0n;
 
     const subscription: Subscription = {
       id: id,
+      chainId: config.chain.id,
       abi: contract,
       contractName: String(contractName),
       contractAddress: address,
@@ -279,7 +280,11 @@ export function createIndexer<
 
   async function init() {
     if (config.subscriptionStore) {
-      const storedSubscriptions = await config.subscriptionStore.all();
+      await config.subscriptionStore.init();
+
+      const storedSubscriptions = await config.subscriptionStore.all(
+        config.chain.id
+      );
 
       for (const subscription of storedSubscriptions) {
         subscribeToContract({

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { createIndexer, ToBlock, Hex, Log, Event } from "@/index";
 import { createSqliteCache } from "@/cache/sqlite";
-import { createSqliteSubscriptionStore } from "@/subscriptionStore";
+import { createSqliteSubscriptionStore } from "@/subscriptionStore/sqlite";
 import { RpcClient } from "@/rpc";
 import { encodeEventTopics, zeroAddress } from "viem";
 
@@ -474,7 +474,7 @@ describe("counter contract", () => {
         "0x0000000000000000000000000000000000000002": 0n,
       });
 
-      expect(await subscriptionStore.all()).toHaveLength(2);
+      expect(await subscriptionStore.all(1)).toHaveLength(2);
     }
 
     {
