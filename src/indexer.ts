@@ -19,9 +19,12 @@ import {
   saveSubscriptionsToStore,
   updateSubscription,
   getSubscriptionEvents,
+  findLowestIndexedBlock,
 } from "@/subscriptions";
 import { AsyncEventEmitter } from "@/asyncEventEmitter";
 import { processEvents } from "@/eventProcessor";
+
+const DEFAULT_MAX_BLOCK_RANGE = 1_000_000n;
 
 export type Config<TAbis extends Record<string, Abi>, TContext = unknown> = {
   contracts: TAbis;
@@ -29,6 +32,7 @@ export type Config<TAbis extends Record<string, Abi>, TContext = unknown> = {
     id: number;
     rpcClient: RpcClient;
     pollingIntervalMs?: number;
+    maxBlockRange?: bigint;
   };
   context?: TContext;
   logLevel?: keyof typeof LogLevel;
@@ -149,13 +153,29 @@ export function createIndexer<
     }
 
     try {
-      let targetBlock: bigint;
+      const maxBlockRange =
+        config.chain.maxBlockRange ?? DEFAULT_MAX_BLOCK_RANGE;
+
+      let finalTargetBlock: bigint;
 
       //  latest is a moving target
       if (state.targetBlock === "latest") {
-        targetBlock = await rpcClient.getLastBlockNumber();
+        finalTargetBlock = await rpcClient.getLastBlockNumber();
       } else {
-        targetBlock = state.targetBlock;
+        finalTargetBlock = state.targetBlock;
+      }
+
+      const lowestIndexedBlock = findLowestIndexedBlock(subscriptions);
+
+      if (lowestIndexedBlock === null) {
+        scheduleNextPoll();
+        return;
+      }
+
+      let targetBlock = lowestIndexedBlock + maxBlockRange;
+
+      if (targetBlock > finalTargetBlock) {
+        targetBlock = finalTargetBlock;
       }
 
       await getSubscriptionEvents({
@@ -181,6 +201,7 @@ export function createIndexer<
           chainId: config.chain.id,
           eventQueue,
           targetBlock,
+          finalTargetBlock,
           subscriptions,
           contracts,
           logger,
@@ -218,7 +239,7 @@ export function createIndexer<
       // report progress when we reach the target block
       eventEmitter.emit("progress", {
         currentBlock: indexedToBlock,
-        targetBlock: targetBlock,
+        targetBlock: finalTargetBlock,
         pendingEventsCount: eventQueue.size(),
       });
 
@@ -228,10 +249,16 @@ export function createIndexer<
         await saveSubscriptionsToStore(config.subscriptionStore, subscriptions);
       }
 
-      // stop th eindexer if we reached the final target block
+      // stop the indexer when we reach the final target block
       if (state.targetBlock !== "latest" && targetBlock === state.targetBlock) {
         logger.trace("Reached indexing target block");
         stop();
+        return;
+      }
+
+      // we are not at the target block yet, schedule the next poll immediately
+      if (targetBlock < finalTargetBlock) {
+        scheduleNextPoll(0);
         return;
       }
     } catch (err) {

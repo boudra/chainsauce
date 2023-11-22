@@ -18,6 +18,7 @@ export async function processEvents<
 >(args: {
   chainId: number;
   targetBlock: bigint;
+  finalTargetBlock: bigint;
   eventQueue: EventQueue;
   subscriptions: Map<string, Subscription>;
   contracts: Record<string, Abi>;
@@ -30,6 +31,7 @@ export async function processEvents<
   const {
     chainId,
     targetBlock,
+    finalTargetBlock,
     eventQueue,
     subscriptions,
     eventEmitter,
@@ -90,7 +92,7 @@ export async function processEvents<
     if (indexedToBlock < event.blockNumber && indexedToBlock > -1n) {
       eventEmitter.emit("progress", {
         currentBlock: indexedToBlock,
-        targetBlock: targetBlock,
+        targetBlock: finalTargetBlock,
         pendingEventsCount: eventQueue.size(),
       });
     }
