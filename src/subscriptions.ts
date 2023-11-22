@@ -1,11 +1,13 @@
 import { decodeEventLog, fromHex, getAddress } from "viem";
 
-import { Abi } from "abitype";
+import { Abi, Address } from "abitype";
 import { Event, Hex, ToBlock } from "@/types";
 import { Logger } from "@/logger";
 import { JsonRpcRangeTooWideError, Log, RpcClient } from "@/rpc";
 import { SubscriptionStore } from "@/subscriptionStore";
 import { Cache } from "@/cache";
+
+const MAX_CONTRACT_ADDRESSES_PER_GET_LOGS_REQUEST = 25;
 
 export type Subscription = {
   id: string;
@@ -123,10 +125,10 @@ function getOutdatedSubscriptions(args: {
 
 async function fetchLogsWithRetry(args: {
   rpc: RpcClient;
-  address: Hex;
+  address: Hex[];
   fromBlock: bigint;
   toBlock: bigint;
-  topics: Hex[] | Hex[][];
+  topics: [Hex[]] | [];
   logger: Logger;
   onLogs: (args: { from: bigint; to: bigint; logs: Log[] }) => Promise<void>;
 }) {
@@ -171,6 +173,54 @@ async function fetchLogsWithRetry(args: {
   }
 }
 
+type OutdatedSubscription = {
+  from: bigint;
+  to: bigint;
+  subscription: Subscription;
+};
+
+function createFetchPlan(subscriptions: OutdatedSubscription[]) {
+  const ranges = new Map<
+    string,
+    { from: bigint; to: bigint; subscriptions: Subscription[] }
+  >();
+
+  for (const { from, to, subscription } of subscriptions) {
+    const key = `${from}-${to}`;
+    const existing = ranges.get(key);
+
+    if (existing === undefined) {
+      ranges.set(key, { from, to, subscriptions: [subscription] });
+    } else {
+      existing.subscriptions.push(subscription);
+    }
+  }
+
+  const chunkedFetchRanges = new Map<
+    string,
+    {
+      from: bigint;
+      to: bigint;
+      subscriptions: Subscription[][];
+    }
+  >();
+
+  for (const [key, { from, to, subscriptions }] of ranges) {
+    const chunkedSubscriptions = chunk(
+      subscriptions,
+      MAX_CONTRACT_ADDRESSES_PER_GET_LOGS_REQUEST
+    );
+
+    chunkedFetchRanges.set(key, {
+      from,
+      to,
+      subscriptions: chunkedSubscriptions,
+    });
+  }
+
+  return chunkedFetchRanges;
+}
+
 export async function getSubscriptionEvents(args: {
   targetBlock: bigint;
   chainId: number;
@@ -183,116 +233,159 @@ export async function getSubscriptionEvents(args: {
   const { chainId, rpc, subscriptions, targetBlock, cache, logger, pushEvent } =
     args;
 
-  const outdatedSubscriptions = getOutdatedSubscriptions({
+  let outdatedSubscriptions = getOutdatedSubscriptions({
     subscriptions: Array.from(subscriptions.values()),
     targetBlock,
   });
 
   const fetchPromises = [];
 
-  for (const { from, to, subscription } of outdatedSubscriptions) {
-    let finalFetchFromBlock = from;
+  if (cache) {
+    outdatedSubscriptions = await Promise.all(
+      outdatedSubscriptions.map(async ({ from, to, subscription }) => {
+        // fetch events from the event store
+        const result = await cache.getEvents({
+          chainId,
+          address: subscription.contractAddress,
+          fromBlock: from,
+          toBlock: to,
+        });
 
-    if (cache) {
-      // fetch events from the event store
-      const result = await cache.getEvents({
-        chainId,
-        address: subscription.contractAddress,
+        if (result !== null) {
+          for (const event of result.events) {
+            pushEvent(event);
+          }
+
+          const cachedToBlock = result.toBlock + 1n;
+
+          // we got all events from the cache
+          if (cachedToBlock >= to) {
+            return [];
+          }
+
+          // fetch the remaining events
+          return [
+            {
+              from: cachedToBlock,
+              to: to,
+              subscription: subscription,
+            },
+          ];
+        }
+
+        // no cache at all, fetch all events
+        return [{ from: from, to: to, subscription }];
+      })
+    ).then((results) => results.flat());
+  }
+
+  const fetchPlan = createFetchPlan(outdatedSubscriptions);
+
+  for (const {
+    from,
+    to,
+    subscriptions: subscriptionChunk,
+  } of fetchPlan.values()) {
+    for (const subscriptionsToFetch of subscriptionChunk) {
+      const addresses = subscriptionsToFetch.map((sub) => sub.contractAddress);
+
+      const promise = fetchLogsWithRetry({
+        rpc,
+        address: addresses,
         fromBlock: from,
         toBlock: to,
+        topics: [],
+        logger,
+        onLogs: async ({ from: chunkFromBlock, to: chunkToBlock, logs }) => {
+          const eventsPerContract = new Map<Address, Event[]>();
+
+          for (const log of logs) {
+            const logAddress = getAddress(log.address);
+            const subscription = getSubscription(
+              subscriptions,
+              `${chainId}-${logAddress}`
+            );
+
+            if (subscription === undefined) {
+              continue;
+            }
+
+            let parsedEvent;
+
+            try {
+              parsedEvent = decodeEventLog({
+                abi: subscription.abi,
+                data: log.data,
+                topics: log.topics,
+              });
+            } catch (error) {
+              // event probably not in the ABI
+              // TODO: only try decoding if the event is in the ABI
+              logger.debug(
+                `Failed to decode event log ${logAddress} ${log.topics[0]}`
+              );
+              continue;
+            }
+
+            if (
+              log.transactionHash === null ||
+              log.blockNumber === null ||
+              log.logIndex === null
+            ) {
+              throw new Error("Event is still pending");
+            }
+
+            const blockNumber = fromHex(log.blockNumber, "bigint");
+
+            const event: Event = {
+              name: parsedEvent.eventName,
+              params: parsedEvent.args,
+              address: logAddress,
+              topic: log.topics[0],
+              transactionHash: log.transactionHash,
+              blockNumber: blockNumber,
+              logIndex: fromHex(log.logIndex, "number"),
+            };
+
+            const events = eventsPerContract.get(subscription.contractAddress);
+
+            if (events === undefined) {
+              eventsPerContract.set(subscription.contractAddress, [event]);
+            } else {
+              events.push(event);
+            }
+            pushEvent(event);
+          }
+
+          if (cache) {
+            for (const [address, events] of eventsPerContract.entries()) {
+              await cache.insertEvents({
+                chainId,
+                address,
+                fromBlock: chunkFromBlock,
+                toBlock: chunkToBlock,
+                events,
+              });
+            }
+          }
+        },
       });
 
-      if (result !== null) {
-        for (const event of result.events) {
-          pushEvent(event);
-        }
-
-        finalFetchFromBlock = result.toBlock + 1n;
-
-        if (finalFetchFromBlock >= to) {
-          continue;
-        }
-      }
+      fetchPromises.push(promise);
     }
-
-    const promise = fetchLogsWithRetry({
-      rpc,
-      address: subscription.contractAddress,
-      fromBlock: finalFetchFromBlock,
-      toBlock: to,
-      topics: [],
-      logger,
-      onLogs: async ({ from: chunkFromBlock, to: chunkToBlock, logs }) => {
-        const events: Event[] = [];
-
-        for (const log of logs) {
-          const logAddress = getAddress(log.address);
-          const subscription = getSubscription(
-            subscriptions,
-            `${chainId}-${logAddress}`
-          );
-
-          if (subscription === undefined) {
-            continue;
-          }
-
-          let parsedEvent;
-
-          try {
-            parsedEvent = decodeEventLog({
-              abi: subscription.abi,
-              data: log.data,
-              topics: log.topics,
-            });
-          } catch (error) {
-            // event probably not in the ABI
-            // TODO: only try decoding if the event is in the ABI
-            logger.debug(
-              `Failed to decode event log ${logAddress} ${log.topics[0]}`
-            );
-            continue;
-          }
-
-          if (
-            log.transactionHash === null ||
-            log.blockNumber === null ||
-            log.logIndex === null
-          ) {
-            throw new Error("Event is still pending");
-          }
-
-          const blockNumber = fromHex(log.blockNumber, "bigint");
-
-          const event: Event = {
-            name: parsedEvent.eventName,
-            params: parsedEvent.args,
-            address: logAddress,
-            topic: log.topics[0],
-            transactionHash: log.transactionHash,
-            blockNumber: blockNumber,
-            logIndex: fromHex(log.logIndex, "number"),
-          };
-
-          events.push(event);
-          pushEvent(event);
-        }
-
-        if (cache) {
-          await cache.insertEvents({
-            chainId,
-            address: subscription.contractAddress,
-            fromBlock: chunkFromBlock,
-            toBlock: chunkToBlock,
-            events,
-          });
-        }
-      },
-    });
-
-    fetchPromises.push(promise);
   }
 
   await Promise.all(fetchPromises);
 
   return outdatedSubscriptions.map(({ subscription }) => subscription.id);
+}
+
+function chunk(subscriptions: Subscription[], size: number) {
+  const chunks = [];
+
+  for (let i = 0; i < subscriptions.length; i += size) {
+    chunks.push(subscriptions.slice(i, i + size));
+  }
+
+  return chunks;
 }
