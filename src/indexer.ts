@@ -298,7 +298,11 @@ export function createIndexer<
         });
       }
 
-      logger.info(`Loaded ${subscriptions.size} subscriptions from store`);
+      if (storedSubscriptions.length > 0) {
+        logger.info(
+          `Loaded ${storedSubscriptions.length} subscriptions from store`
+        );
+      }
     }
   }
 
