@@ -206,6 +206,7 @@ export function createIndexer<
           contracts,
           logger,
           eventEmitter,
+          subscriptionStore: config.subscriptionStore,
           context: config.context,
           readContract: readContract,
           subscribeToContract: subscribeToContract,
@@ -326,8 +327,10 @@ export function createIndexer<
       }
 
       if (storedSubscriptions.length > 0) {
+        const lowestIndexedBlock = findLowestIndexedBlock(subscriptions);
+
         logger.info(
-          `Loaded ${storedSubscriptions.length} subscriptions from store`
+          `Resuming indexing from block ${lowestIndexedBlock} for ${storedSubscriptions.length} subscriptions`
         );
       }
     }

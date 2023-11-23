@@ -11,6 +11,7 @@ import { Logger } from "@/logger";
 import { AsyncEventEmitter } from "@/asyncEventEmitter";
 import { Indexer, IndexerEvents } from "@/indexer";
 import { EventHandler } from "@/types";
+import { SubscriptionStore } from "./subscriptionStore";
 
 export async function processEvents<
   TAbis extends Record<string, Abi>,
@@ -24,6 +25,7 @@ export async function processEvents<
   contracts: Record<string, Abi>;
   logger: Logger;
   eventEmitter: AsyncEventEmitter<IndexerEvents<TAbis, TContext>>;
+  subscriptionStore?: SubscriptionStore;
   context?: TContext;
   readContract: Indexer<TAbis, TContext>["readContract"];
   subscribeToContract: Indexer<TAbis, TContext>["subscribeToContract"];
@@ -37,6 +39,7 @@ export async function processEvents<
     eventEmitter,
     context,
     readContract,
+    subscriptionStore,
     subscribeToContract,
   } = args;
 
@@ -87,6 +90,13 @@ export async function processEvents<
       indexedToBlock: event.blockNumber,
       indexedToLogIndex: event.logIndex,
     });
+
+    if (subscriptionStore) {
+      await subscriptionStore.update(subscription.id, {
+        indexedToBlock: event.blockNumber,
+        indexedToLogIndex: event.logIndex,
+      });
+    }
 
     // report progress when we start a new block
     if (indexedToBlock < event.blockNumber && indexedToBlock > -1n) {

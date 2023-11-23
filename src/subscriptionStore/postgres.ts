@@ -79,9 +79,28 @@ export function createPostgresSubscriptionStore(args: {
         subscription.contractAddress,
         subscription.fromBlock.toString(),
         subscription.indexedToBlock.toString(),
-        subscription.indexedToBlock,
+        subscription.indexedToLogIndex,
         subscription.toBlock,
         subscription.chainId,
+      ]);
+    },
+
+    async update(
+      id: string,
+      update: Pick<Subscription, "indexedToBlock" | "indexedToLogIndex">
+    ): Promise<void> {
+      const query = `
+      UPDATE ${schemaPrefix}subscriptions
+      SET
+        indexed_to_block = $1,
+        indexed_to_log_index = $2
+      WHERE id = $3
+      `;
+
+      await runQuery(query, [
+        update.indexedToBlock.toString(),
+        update.indexedToLogIndex,
+        id,
       ]);
     },
 

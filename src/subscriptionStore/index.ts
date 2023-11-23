@@ -18,4 +18,8 @@ export interface SubscriptionStore {
   get(id: string): Promise<Subscription | null>;
   delete(id: string): Promise<void>;
   all(chainId: number): Promise<Subscription[]>;
+  update(
+    id: string,
+    update: Pick<Subscription, "indexedToBlock" | "indexedToLogIndex">
+  ): Promise<void>;
 }

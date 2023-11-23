@@ -60,6 +60,21 @@ export function createSqliteSubscriptionStore(
       );
     },
 
+    async update(
+      id: string,
+      update: Pick<Subscription, "indexedToBlock" | "indexedToLogIndex">
+    ): Promise<void> {
+      const stmt = db.prepare(`
+      UPDATE subscriptions
+      SET
+        indexedToBlock = ?,
+        indexedToLogIndex = ?
+      WHERE id = ?
+      `);
+
+      stmt.run(update.indexedToBlock.toString(), update.indexedToLogIndex, id);
+    },
+
     async get(id: string): Promise<Subscription | null> {
       const stmt = db.prepare("SELECT * FROM subscriptions WHERE id = ?");
       const row = stmt.get(id) as SubscriptionRow | undefined;
