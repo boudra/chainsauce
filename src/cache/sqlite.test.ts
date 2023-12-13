@@ -1,6 +1,7 @@
+import { Block } from "@/cache";
 import { createSqliteCache } from "@/cache/sqlite";
 import { Event } from "@/types";
-import { describe, it, expect } from "vitest";
+import { describe, test, it, expect } from "vitest";
 
 const makeEvent = (blockNumber: bigint): Event => ({
   name: "EventName",
@@ -213,5 +214,35 @@ describe("event store", () => {
     });
 
     expect(storedEvents).toBeNull();
+  });
+
+  describe("block cache", async () => {
+    it("returns null on non existent blocks", async () => {
+      const cache = createSqliteCache(":memory:");
+      const cachedBlock = await cache.getBlockByNumber({
+        chainId: 1,
+        blockNumber: 1n,
+      });
+
+      expect(cachedBlock).toBeNull();
+    });
+
+    it("returns block on existent blocks", async () => {
+      const cache = createSqliteCache(":memory:");
+      const block: Block = {
+        chainId: 1,
+        blockNumber: 1n,
+        blockHash: "0x123",
+        timestamp: 123,
+      };
+      await cache.insertBlock(block);
+
+      const cachedBlock = await cache.getBlockByNumber({
+        chainId: 1,
+        blockNumber: 1n,
+      });
+
+      expect(cachedBlock).toEqual(block);
+    });
   });
 });

@@ -53,10 +53,16 @@ export function findLowestIndexedBlock(subscriptions: Subscriptions) {
   let min = null;
 
   for (const sub of subscriptions.values()) {
+    let subIndexedToBlock = sub.indexedToBlock;
+
+    if (sub.fromBlock > subIndexedToBlock) {
+      subIndexedToBlock = sub.fromBlock;
+    }
+
     if (min === null) {
-      min = sub.indexedToBlock;
-    } else if (sub.indexedToBlock < min) {
-      min = sub.indexedToBlock;
+      min = subIndexedToBlock;
+    } else if (subIndexedToBlock < min) {
+      min = subIndexedToBlock;
     }
   }
 
@@ -93,12 +99,17 @@ function getOutdatedSubscriptions(args: {
   return subscriptions.flatMap((sub) => {
     let fromBlock;
 
+    // if indexedToBlock is greater than targetBlock, the subscription is up to date
     if (sub.indexedToBlock > targetBlock) {
       return [];
     } else if (sub.fetchedToBlock > sub.indexedToBlock) {
       fromBlock = sub.fetchedToBlock + 1n;
     } else {
       fromBlock = sub.indexedToBlock + 1n;
+    }
+
+    if (sub.fromBlock > fromBlock) {
+      fromBlock = sub.fromBlock;
     }
 
     let toBlock;

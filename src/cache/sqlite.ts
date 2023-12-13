@@ -1,7 +1,7 @@
 import Sqlite from "better-sqlite3";
 
 import { Event, Hex } from "@/types";
-import { Cache } from "@/cache";
+import { Block, Cache } from "@/cache";
 import { encodeJsonWithBigInts, decodeJsonWithBigInts } from "@/utils";
 
 type EventRow = {
@@ -13,6 +13,13 @@ type EventRow = {
   transactionHash: Hex;
   blockNumber: string;
   logIndex: number;
+};
+
+type BlockRow = {
+  chainId: number;
+  blockNumber: number;
+  blockHash: Hex;
+  timestamp: number;
 };
 
 function initSqliteConnection(dbPath: string) {
@@ -65,6 +72,16 @@ function initSqliteConnection(dbPath: string) {
   );
 `);
 
+  db.exec(`
+  CREATE TABLE IF NOT EXISTS blocks (
+    chainId INTEGER,
+    blockNumber INTEGER,
+    blockHash INTEGER,
+    timestamp INTEGER,
+    PRIMARY KEY (chainId, blockHash)
+  );
+`);
+
   const insertEventStmt = db.prepare(
     `INSERT OR REPLACE INTO events (chainId, name, params, address, topic0, transactionHash, blockNumber, logIndex)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
@@ -89,12 +106,24 @@ function initSqliteConnection(dbPath: string) {
     WHERE chainId = ? AND address = ? AND blockNumber >= ? AND blockNumber <= ?
     `);
 
+  const findBlockByNumberStmt = db.prepare(`
+    SELECT * FROM blocks
+    WHERE chainId = ? AND blockNumber = ?
+    `);
+
+  const insertBlockStmt = db.prepare(`
+    INSERT OR REPLACE INTO blocks (chainId, blockNumber, blockHash, timestamp)
+    VALUES (?, ?, ?, ?)
+    `);
+
   return {
     db,
     findRangesStmt,
     findEventsStmt,
     insertEventStmt,
     findAdjacentRangesStmt,
+    findBlockByNumberStmt,
+    insertBlockStmt,
   };
 }
 
@@ -275,6 +304,40 @@ export function createSqliteCache(dbPath: string): Cache {
         args.blockNumber.toString(),
         args.result
       );
+    },
+
+    async insertBlock(args: Block): Promise<void> {
+      const { insertBlockStmt } = getConnection();
+
+      const { chainId, blockNumber, blockHash, timestamp } = args;
+
+      insertBlockStmt.run(
+        chainId,
+        blockNumber.toString(),
+        blockHash,
+        timestamp
+      );
+    },
+
+    async getBlockByNumber(args: {
+      chainId: number;
+      blockNumber: bigint;
+    }): Promise<Block | null> {
+      const { findBlockByNumberStmt } = getConnection();
+
+      const row = findBlockByNumberStmt.get(
+        args.chainId,
+        args.blockNumber.toString()
+      ) as BlockRow | undefined;
+
+      return row
+        ? {
+            chainId: row.chainId,
+            blockNumber: BigInt(row.blockNumber),
+            blockHash: row.blockHash,
+            timestamp: row.timestamp,
+          }
+        : null;
     },
   };
 }

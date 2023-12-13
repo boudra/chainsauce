@@ -101,7 +101,8 @@ type StoppedIndexerState = {
 type RunningIndexerState = {
   type: "running";
   pollTimeout: NodeJS.Timeout;
-  targetBlock: ToBlock;
+  finalTargetBlock: ToBlock;
+  checkpointTargetBlock: bigint | null;
   onError: (error: unknown) => void;
   onStop: () => void;
 };
@@ -159,10 +160,10 @@ export function createIndexer<
       let finalTargetBlock: bigint;
 
       //  latest is a moving target
-      if (state.targetBlock === "latest") {
+      if (state.finalTargetBlock === "latest") {
         finalTargetBlock = await rpcClient.getLastBlockNumber();
       } else {
-        finalTargetBlock = state.targetBlock;
+        finalTargetBlock = state.finalTargetBlock;
       }
 
       const lowestIndexedBlock = findLowestIndexedBlock(subscriptions);
@@ -172,11 +173,22 @@ export function createIndexer<
         return;
       }
 
-      let targetBlock = lowestIndexedBlock + maxBlockRange;
+      let targetBlock = state.checkpointTargetBlock;
 
+      // we indexed past the checkpoint target block
+      if (targetBlock !== null && lowestIndexedBlock >= targetBlock) {
+        targetBlock = targetBlock + maxBlockRange;
+      } else if (targetBlock === null) {
+        targetBlock = lowestIndexedBlock + maxBlockRange;
+      }
+
+      // cap the target block to the final target block
       if (targetBlock > finalTargetBlock) {
         targetBlock = finalTargetBlock;
       }
+
+      // set the checkpoint target block to the target block
+      state.checkpointTargetBlock = targetBlock;
 
       await getSubscriptionEvents({
         chainId: config.chain.id,
@@ -251,7 +263,10 @@ export function createIndexer<
       }
 
       // stop the indexer when we reach the final target block
-      if (state.targetBlock !== "latest" && targetBlock === state.targetBlock) {
+      if (
+        state.finalTargetBlock !== "latest" &&
+        targetBlock === state.finalTargetBlock
+      ) {
         logger.trace("Reached indexing target block");
         stop();
         return;
@@ -280,16 +295,17 @@ export function createIndexer<
       throw new Error(`Contract ${String(contractName)} not found`);
     }
 
+    const fromBlock = subscribeOptions.fromBlock ?? 0n;
+
     logger.trace(
       `Subscribing to ${String(contractName)} ${
         subscribeOptions.address
-      } from ${subscribeOptions.fromBlock ?? 0}`
+      } from ${fromBlock}`
     );
 
     const id = `${config.chain.id}-${address}`;
 
-    const fromBlock = subscribeOptions.fromBlock ?? 0n;
-
+    // TODO: change -1n to null
     const subscription: Subscription = {
       id: id,
       chainId: config.chain.id,
@@ -298,7 +314,7 @@ export function createIndexer<
       contractAddress: address,
       fromBlock: fromBlock,
       toBlock: subscribeOptions.toBlock ?? "latest",
-      indexedToBlock: subscribeOptions.indexedToBlock ?? fromBlock - 1n,
+      indexedToBlock: subscribeOptions.indexedToBlock ?? -1n,
       fetchedToBlock: -1n,
       indexedToLogIndex: 0,
     };
@@ -441,7 +457,8 @@ export function createIndexer<
 
             state = {
               type: "running",
-              targetBlock: "latest",
+              finalTargetBlock: "latest",
+              checkpointTargetBlock: null,
               // eslint-disable-next-line @typescript-eslint/no-empty-function
               onStop: () => {},
               onError: (error) => {
@@ -479,7 +496,8 @@ export function createIndexer<
         return new Promise((resolve, reject) => {
           state = {
             type: "running",
-            targetBlock: targetBlock,
+            finalTargetBlock: targetBlock,
+            checkpointTargetBlock: null,
             onStop: () => {
               resolve();
             },

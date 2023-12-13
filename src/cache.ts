@@ -1,5 +1,12 @@
 import { Event, Hex } from "@/types";
 
+export interface Block {
+  chainId: number;
+  blockNumber: bigint;
+  blockHash: Hex;
+  timestamp: number;
+}
+
 export interface Cache {
   insertEvents(args: {
     chainId: number;
@@ -30,4 +37,10 @@ export interface Cache {
     blockNumber: bigint;
     result: Hex;
   }): Promise<void>;
+  getBlockByNumber(args: {
+    chainId: number;
+    blockNumber: bigint;
+  }): Promise<Block | null>;
+
+  insertBlock(args: Block): Promise<void>;
 }
