@@ -256,8 +256,6 @@ export function createIndexer<
         pendingEventsCount: eventQueue.size(),
       });
 
-      logger.trace(`Indexed to block ${targetBlock}`);
-
       if (config.subscriptionStore) {
         await saveSubscriptionsToStore(config.subscriptionStore, subscriptions);
       }
