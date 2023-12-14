@@ -53,6 +53,11 @@ export async function processEvents<
       `${chainId}-${event.address}`
     );
 
+    const eventWithContractName = {
+      ...event,
+      contractName: subscription.contractName,
+    };
+
     if (
       event.blockNumber === subscription.indexedToBlock &&
       event.logIndex < subscription.indexedToLogIndex
@@ -61,7 +66,7 @@ export async function processEvents<
     }
 
     const eventHandlerArgs: Parameters<EventHandler>[0] = {
-      event,
+      event: eventWithContractName,
       chainId,
       context,
       readContract: (args) => {

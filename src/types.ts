@@ -53,7 +53,7 @@ export type EventHandlerArgs<
           N,
           { EnableUnion: false; IndexedOnly: false; Required: true }
         >
-      >
+      > & { contractName: keyof TAbis }
     : never;
   readContract<
     TContractName extends keyof TAbis,
