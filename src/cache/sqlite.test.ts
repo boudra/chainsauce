@@ -1,7 +1,7 @@
 import { Block } from "@/cache";
 import { createSqliteCache } from "@/cache/sqlite";
 import { Event } from "@/types";
-import { describe, test, it, expect } from "vitest";
+import { describe, it, expect } from "vitest";
 
 const makeEvent = (blockNumber: bigint): Event => ({
   name: "EventName",
