@@ -244,6 +244,10 @@ export function createHttpRpcBaseClient(args: {
           (e.cause.errorResponse.message.includes("query returned more than") ||
             e.cause.errorResponse.message.includes(
               "Log response size exceeded"
+            ) ||
+            e.cause.errorResponse.message.includes("block range is too wide") ||
+            e.cause.errorResponse.message.includes(
+              "exceed maximum block range"
             ))
         ) {
           throw new JsonRpcRangeTooWideError(e);
