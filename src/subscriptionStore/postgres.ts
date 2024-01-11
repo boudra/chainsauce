@@ -51,9 +51,9 @@ export function createPostgresSubscriptionStore(args: {
           chain_id INTEGER,
           contract_name TEXT,
           contract_address TEXT,
-          from_block TEXT,
-          to_block TEXT,
-          indexed_to_block TEXT,
+          from_block BIGINT,
+          to_block BIGINT,
+          indexed_to_block BIGINT,
           indexed_to_log_index INTEGER
         )
         `
