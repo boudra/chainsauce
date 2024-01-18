@@ -164,6 +164,11 @@ describe("counter contract", () => {
       // TODO: implement
       return undefined as T;
     },
+    async subscribeToLogs(_args) {
+      return () => {
+        // nothing
+      };
+    },
   };
 
   async function handleIncrement({

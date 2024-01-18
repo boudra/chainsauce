@@ -1,5 +1,5 @@
 export { Abi } from "abitype";
-export { Log, createHttpRpcClient } from "@/rpc";
+export { Log, createRpcClient } from "@/rpc";
 export { Logger, LoggerBackend, LogLevel } from "@/logger";
 export { Hex, ToBlock, Event } from "@/types";
 

@@ -60,6 +60,11 @@ export interface RpcClient {
     data: Hex;
     blockNumber: bigint;
   }): Promise<Hex>;
+  subscribeToLogs(args: {
+    onLogs: (logs: Log[]) => Promise<void>;
+    address: Hex;
+    topics: Hex[] | Hex[][];
+  }): Promise<() => void>;
 }
 
 export function createConcurrentRpcClientWithRetry(args: {
@@ -119,27 +124,22 @@ export function createConcurrentRpcClientWithRetry(args: {
     async readContract(args): Promise<Hex> {
       return queueRpcCall(() => client.readContract(args));
     },
+    async subscribeToLogs(args): Promise<() => void> {
+      return client.subscribeToLogs(args);
+    },
   };
 }
 
-export function createHttpRpcClient(args: {
-  retryDelayMs?: number;
-  maxRetries?: number;
-  maxConcurrentRequests?: number;
-  url: string;
-  fetch?: typeof globalThis.fetch;
-  onRequest?: (request: {
-    method: string;
-    params: unknown;
-    url: string;
-  }) => void;
-}): RpcClient {
+export function createRpcClient(
+  args: Parameters<typeof createRpcBaseClient>[0] &
+    Parameters<typeof createConcurrentRpcClientWithRetry>[0]
+): RpcClient {
   const retryDelayMs = args.retryDelayMs ?? 1000;
   const maxConcurrentRequests = args.maxConcurrentRequests ?? 10;
   const maxRetries = args.maxRetries ?? 5;
 
   return createConcurrentRpcClientWithRetry({
-    client: createHttpRpcBaseClient({
+    client: createRpcBaseClient({
       url: args.url,
       fetch: args.fetch,
       onRequest: args.onRequest,
@@ -150,7 +150,7 @@ export function createHttpRpcClient(args: {
   });
 }
 
-export function createHttpRpcBaseClient(args: {
+export function createRpcBaseClient(args: {
   url: string;
   fetch?: typeof globalThis.fetch;
   onRequest?: (request: {

@@ -1,6 +1,6 @@
 import { test, assert, expect, vi } from "vitest";
 import {
-  createHttpRpcClient,
+  createRpcClient,
   JsonRpcError,
   JsonRpcRangeTooWideError,
 } from "./rpc";
@@ -12,7 +12,7 @@ test("should get last block number", async () => {
     json: async () => ({ result: "0x2A" }),
   });
 
-  const rpcClient = createHttpRpcClient({
+  const rpcClient = createRpcClient({
     url: "http://localhost",
     fetch: mockFetch,
   });
@@ -55,7 +55,7 @@ test("should get logs", async () => {
     json: async () => ({ result: fakeLogs }),
   });
 
-  const rpcClient = createHttpRpcClient({
+  const rpcClient = createRpcClient({
     url: "http://localhost",
     fetch: mockFetch,
   });
@@ -77,7 +77,7 @@ test("should throw JsonRpcError on error", async () => {
     json: async () => ({ error: { message: "fail", code: -1, data: null } }),
   });
 
-  const rpcClient = createHttpRpcClient({
+  const rpcClient = createRpcClient({
     url: "http://localhost",
     fetch: mockFetch,
   });
@@ -94,7 +94,7 @@ test("should retry on 500 status", async () => {
     json: async () => ({}),
   });
 
-  const rpcClient = createHttpRpcClient({
+  const rpcClient = createRpcClient({
     url: "http://localhost",
     fetch: mockFetch,
     retryDelayMs: 0,
@@ -113,7 +113,7 @@ test("should retry on 429 status", async () => {
     json: async () => ({}),
   });
 
-  const rpcClient = createHttpRpcClient({
+  const rpcClient = createRpcClient({
     url: "http://localhost",
     fetch: mockFetch,
     retryDelayMs: 0,
@@ -138,7 +138,7 @@ test("should throw JsonRpcRangeTooWideError on Alchemy query error", async () =>
     }),
   });
 
-  const rpcClient = createHttpRpcClient({
+  const rpcClient = createRpcClient({
     url: "http://localhost",
     fetch: mockFetch,
   });
