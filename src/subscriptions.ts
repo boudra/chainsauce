@@ -73,6 +73,7 @@ export async function saveSubscriptionsToStore(
   store: SubscriptionStore,
   subscriptions: Subscriptions
 ): Promise<void> {
+  console.log("saving", subscriptions);
   for (const subscription of subscriptions.values()) {
     const subscriptionItem = {
       id: subscription.id,
@@ -90,43 +91,99 @@ export async function saveSubscriptionsToStore(
   }
 }
 
-function getOutdatedSubscriptions(args: {
+export function getSubscriptionsToFetch(args: {
   subscriptions: Subscription[];
   targetBlock: bigint;
 }) {
   const { targetBlock, subscriptions } = args;
 
   return subscriptions.flatMap((sub) => {
-    let fromBlock;
+    let fromBlock = sub.fetchedToBlock + 1n;
 
-    // if indexedToBlock is greater than targetBlock, the subscription is up to date
-    if (sub.indexedToBlock > targetBlock) {
+    // if we have fetched logs past the target block, we don't need to fetch
+    if (fromBlock > targetBlock) {
       return [];
-    } else if (sub.fetchedToBlock > sub.indexedToBlock) {
-      fromBlock = sub.fetchedToBlock + 1n;
-    } else {
-      fromBlock = sub.indexedToBlock + 1n;
     }
 
-    if (sub.fromBlock > fromBlock) {
+    // if the target block is before the subscription's fromBlock, we don't need to fetch yet
+    if (targetBlock < sub.fromBlock) {
+      return [];
+    }
+
+    if (fromBlock < sub.fromBlock) {
       fromBlock = sub.fromBlock;
     }
 
     let toBlock;
 
-    if (sub.toBlock !== "latest" && sub.toBlock < targetBlock) {
-      toBlock = sub.toBlock;
-    } else {
+    if (sub.toBlock === "latest") {
       toBlock = targetBlock;
+    } else {
+      toBlock = sub.toBlock;
     }
 
     if (fromBlock > toBlock) {
-      return [];
+      throw new Error(
+        `Subscription ${sub.id} has fromBlock ${fromBlock} > toBlock ${toBlock}`
+      );
     }
 
     return [
       {
         from: fromBlock,
+        to: toBlock,
+        subscription: sub,
+      },
+    ];
+  });
+}
+
+export function getSubscriptionsToIndex(args: {
+  subscriptions: Subscription[];
+  targetBlock: bigint;
+}) {
+  const { targetBlock, subscriptions } = args;
+
+  return subscriptions.flatMap((sub) => {
+    if (targetBlock > sub.fetchedToBlock) {
+      throw new Error(
+        `Subscription ${sub.id} has fetchedToBlock ${sub.fetchedToBlock} < targetBlock ${targetBlock}`
+      );
+    }
+
+    let indexFromBlock = sub.indexedToBlock + 1n;
+
+    // if we have indexed logs past the target block, we're up to date
+    if (indexFromBlock > targetBlock) {
+      return [];
+    }
+
+    // if the target block is before the subscription's fromBlock, we're up to date
+    if (targetBlock < sub.fromBlock) {
+      return [];
+    }
+
+    if (indexFromBlock < sub.fromBlock) {
+      indexFromBlock = sub.fromBlock;
+    }
+
+    let toBlock;
+
+    if (sub.toBlock === "latest") {
+      toBlock = targetBlock;
+    } else {
+      toBlock = sub.toBlock;
+    }
+
+    if (indexFromBlock > toBlock) {
+      throw new Error(
+        `Subscription ${sub.id} has fromBlock ${indexFromBlock} > toBlock ${toBlock}`
+      );
+    }
+
+    return [
+      {
+        from: indexFromBlock,
         to: toBlock,
         subscription: sub,
       },
@@ -244,16 +301,18 @@ export async function getSubscriptionEvents(args: {
   const { chainId, rpc, subscriptions, targetBlock, cache, logger, pushEvent } =
     args;
 
-  let outdatedSubscriptions = getOutdatedSubscriptions({
+  let subscriptionToFetch = getSubscriptionsToFetch({
     subscriptions: Array.from(subscriptions.values()),
     targetBlock,
   });
 
+  console.log("subscriptionToFetch", subscriptionToFetch);
+
   const fetchPromises = [];
 
   if (cache) {
-    outdatedSubscriptions = await Promise.all(
-      outdatedSubscriptions.map(async ({ from, to, subscription }) => {
+    subscriptionToFetch = await Promise.all(
+      subscriptionToFetch.map(async ({ from, to, subscription }) => {
         // fetch events from the event store
         const result = await cache.getEvents({
           chainId,
@@ -290,7 +349,7 @@ export async function getSubscriptionEvents(args: {
     ).then((results) => results.flat());
   }
 
-  const fetchPlan = createFetchPlan(outdatedSubscriptions);
+  const fetchPlan = createFetchPlan(subscriptionToFetch);
 
   for (const {
     from,
@@ -388,7 +447,7 @@ export async function getSubscriptionEvents(args: {
 
   await Promise.all(fetchPromises);
 
-  return outdatedSubscriptions.map(({ subscription }) => subscription.id);
+  return subscriptionToFetch.map(({ subscription }) => subscription.id);
 }
 
 function chunk(subscriptions: Subscription[], size: number) {

@@ -29,6 +29,7 @@ export async function processEvents<
   context?: TContext;
   readContract: Indexer<TAbis, TContext>["readContract"];
   subscribeToContract: Indexer<TAbis, TContext>["subscribeToContract"];
+  activeSubscriptionsCount: number;
 }) {
   const {
     chainId,
@@ -109,6 +110,7 @@ export async function processEvents<
         currentBlock: indexedToBlock,
         targetBlock: finalTargetBlock,
         pendingEventsCount: eventQueue.size(),
+        activeSubscriptionsCount: args.activeSubscriptionsCount,
       });
     }
 

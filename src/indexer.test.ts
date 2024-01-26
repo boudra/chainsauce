@@ -441,7 +441,7 @@ describe("counter contract", () => {
     expect(getLogsMock).toHaveBeenCalledTimes(0);
   });
 
-  test("resumable index across restarts", async () => {
+  test.only("resumable index across restarts", async () => {
     const subscriptionStore = createSqliteSubscriptionStore(":memory:");
 
     {
@@ -516,7 +516,11 @@ describe("counter contract", () => {
         address: "0x0000000000000000000000000000000000000002",
       });
 
+      console.log("subs1", indexer.getSubscriptions());
+
       await indexer.indexToBlock("latest");
+
+      console.log("subs2", indexer.getSubscriptions());
 
       expect(state.events).toHaveLength(7);
       expect(state.counters).toEqual({

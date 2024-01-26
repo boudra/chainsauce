@@ -6,7 +6,7 @@ import {
   ExtractAbiFunction,
   ExtractAbiFunctionNames,
 } from "abitype";
-import { GetEventArgs } from "viem";
+import { Address, GetEventArgs } from "viem";
 
 export type Hex = `0x${string}`;
 export type ToBlock = "latest" | bigint;
@@ -73,7 +73,7 @@ export type EventHandlerArgs<
     this: void,
     options: {
       contract: keyof TAbis;
-      address: string;
+      address: Address;
       toBlock?: ToBlock;
     }
   ): void;

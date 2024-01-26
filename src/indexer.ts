@@ -1,5 +1,10 @@
 import { Abi, ExtractAbiEventNames, ExtractAbiFunctionNames } from "abitype";
-import { decodeFunctionResult, encodeFunctionData, getAddress } from "viem";
+import {
+  Address,
+  decodeFunctionResult,
+  encodeFunctionData,
+  getAddress,
+} from "viem";
 
 import { RpcClient } from "@/rpc";
 import { Cache } from "@/cache";
@@ -41,7 +46,10 @@ export type Config<TAbis extends Record<string, Abi>, TContext = unknown> = {
   subscriptionStore?: SubscriptionStore;
 };
 
-export type IndexerEvents<TAbis extends Record<string, Abi>, TContext> = {
+export type IndexerEvents<
+  TAbis extends Record<string, Abi> = Record<string, Abi>,
+  TContext = unknown
+> = {
   stopped: () => void;
   started: () => void;
   error: (err: unknown) => void;
@@ -49,6 +57,7 @@ export type IndexerEvents<TAbis extends Record<string, Abi>, TContext> = {
     currentBlock: bigint;
     targetBlock: bigint;
     pendingEventsCount: number;
+    activeSubscriptionsCount: number;
   }) => void;
   event: EventHandler<TAbis, TContext>;
 };
@@ -68,13 +77,17 @@ export interface Indexer<
 
   subscribeToContract(options: {
     contract: keyof TAbis;
-    address: string;
+    address: Address;
     indexedToBlock?: bigint;
+    fetchedToBlock?: bigint;
     fromBlock?: bigint;
     fromLogIndex?: number;
     toBlock?: ToBlock;
     id?: string;
   }): void;
+
+  unsubscribeFromContract(options: { address: Address }): void;
+  getSubscriptions(): Subscription[];
 
   readContract<
     TContractName extends keyof TAbis,
@@ -190,7 +203,7 @@ export function createIndexer<
       // set the checkpoint target block to the target block
       state.checkpointTargetBlock = targetBlock;
 
-      await getSubscriptionEvents({
+      const fetchedSubscriptions = await getSubscriptionEvents({
         chainId: config.chain.id,
         targetBlock,
         subscriptions,
@@ -222,6 +235,7 @@ export function createIndexer<
           context: config.context,
           readContract: readContract,
           subscribeToContract: subscribeToContract,
+          activeSubscriptionsCount: fetchedSubscriptions.length,
         });
 
       for (const id of subscriptionIds) {
@@ -254,6 +268,7 @@ export function createIndexer<
         currentBlock: indexedToBlock,
         targetBlock: finalTargetBlock,
         pendingEventsCount: eventQueue.size(),
+        activeSubscriptionsCount: fetchedSubscriptions.length,
       });
 
       if (config.subscriptionStore) {
@@ -328,12 +343,15 @@ export function createIndexer<
         config.chain.id
       );
 
+      console.log("stored", storedSubscriptions);
+
       for (const subscription of storedSubscriptions) {
         subscribeToContract({
           contract: subscription.contractName as keyof TAbis,
           id: subscription.id,
           address: subscription.contractAddress,
           indexedToBlock: subscription.indexedToBlock,
+          fetchedToBlock: subscription.fetchedToBlock,
           fromBlock: subscription.fromBlock,
           fromLogIndex: subscription.indexedToLogIndex,
           toBlock: subscription.toBlock,
@@ -440,6 +458,16 @@ export function createIndexer<
       stop,
 
       readContract,
+
+      getSubscriptions(): Subscription[] {
+        return Array.from(subscriptions.values()).map((s) => ({
+          ...s,
+        }));
+      },
+
+      unsubscribeFromContract(id: string): void {
+        subscriptions.delete(id);
+      },
 
       watch() {
         const initPromise =
