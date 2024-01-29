@@ -77,6 +77,12 @@ export type EventHandlerArgs<
       toBlock?: ToBlock;
     }
   ): void;
+  unsubscribeFromContract(
+    this: void,
+    options: {
+      address: Address;
+    }
+  ): void;
 };
 
 export type EventHandler<

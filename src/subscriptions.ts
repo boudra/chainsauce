@@ -24,12 +24,22 @@ export type Subscription = {
 
 export type Subscriptions = Map<string, Subscription>;
 
+export function getSubscriptionSafe(
+  subscriptions: Subscriptions,
+  id: string
+): Subscription | null {
+  const subscription = subscriptions.get(id);
+  if (subscription === undefined) {
+    return null;
+  }
+  return subscription;
+}
+
 export function getSubscription(subscriptions: Subscriptions, id: string) {
   const subscription = subscriptions.get(id);
   if (subscription === undefined) {
     throw new Error(`Subscription ${id} not found`);
   }
-
   return subscription;
 }
 
@@ -39,8 +49,9 @@ export function updateSubscription(
   update: Partial<Subscription>
 ) {
   const subscription = subscriptions.get(id);
+
   if (subscription === undefined) {
-    throw new Error(`Subscription ${id} not found`);
+    return;
   }
 
   subscriptions.set(id, {

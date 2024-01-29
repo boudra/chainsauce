@@ -28,6 +28,7 @@ import {
 } from "@/subscriptions";
 import { AsyncEventEmitter } from "@/asyncEventEmitter";
 import { processEvents } from "@/eventProcessor";
+import { warn } from "console";
 
 const DEFAULT_MAX_BLOCK_RANGE = 1_000_000n;
 
@@ -57,7 +58,6 @@ export type IndexerEvents<
     currentBlock: bigint;
     targetBlock: bigint;
     pendingEventsCount: number;
-    activeSubscriptionsCount: number;
   }) => void;
   event: EventHandler<TAbis, TContext>;
 };
@@ -235,7 +235,7 @@ export function createIndexer<
           context: config.context,
           readContract: readContract,
           subscribeToContract: subscribeToContract,
-          activeSubscriptionsCount: fetchedSubscriptions.length,
+          unsubscribeFromContract,
         });
 
       for (const id of subscriptionIds) {
@@ -268,7 +268,6 @@ export function createIndexer<
         currentBlock: indexedToBlock,
         targetBlock: finalTargetBlock,
         pendingEventsCount: eventQueue.size(),
-        activeSubscriptionsCount: fetchedSubscriptions.length,
       });
 
       if (config.subscriptionStore) {
@@ -448,6 +447,14 @@ export function createIndexer<
     }) as ReadContractReturn<TAbis[TContractName], TFunctionName>;
   }
 
+  function unsubscribeFromContract({ address }: { address: Address }): void {
+    const id = `${config.chain.id}-${address}`;
+    subscriptions.delete(id);
+    if (config.subscriptionStore) {
+      config.subscriptionStore.delete(id);
+    }
+  }
+
   return Object.setPrototypeOf(
     {
       context: config.context,
@@ -462,9 +469,7 @@ export function createIndexer<
         }));
       },
 
-      unsubscribeFromContract(id: string): void {
-        subscriptions.delete(id);
-      },
+      unsubscribeFromContract,
 
       watch() {
         const initPromise =

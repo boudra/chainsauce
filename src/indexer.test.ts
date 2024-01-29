@@ -316,6 +316,86 @@ describe("counter contract", () => {
     vi.useRealTimers();
   });
 
+  test("progress reporting", async () => {
+    const indexer = createIndexer({
+      chain: {
+        id: 1,
+        rpcClient: rpcClient,
+        pollingIntervalMs: 0,
+      },
+      contracts: Contracts,
+    });
+
+    indexer.on("Counter:Increment", handleIncrement);
+    indexer.on("Counter:Decrement", handleDecrement);
+
+    indexer.subscribeToContract({
+      contract: "Counter",
+      address: "0x0000000000000000000000000000000000000001",
+    });
+
+    indexer.subscribeToContract({
+      contract: "Counter",
+      address: "0x0000000000000000000000000000000000000002",
+    });
+
+    const progressHandler = vi.fn();
+
+    indexer.on("progress", progressHandler);
+
+    await indexer.indexToBlock("latest");
+
+    expect(progressHandler).toHaveBeenCalledTimes(2);
+
+    expect(progressHandler.mock.calls[0][0]).toEqual({
+      currentBlock: 0n,
+      targetBlock: 2n,
+      pendingEventsCount: 2,
+    });
+
+    expect(progressHandler.mock.calls[1][0]).toEqual({
+      currentBlock: 2n,
+      targetBlock: 2n,
+      pendingEventsCount: 0,
+    });
+  });
+
+  test("subscription control", async () => {
+    const indexer = createIndexer({
+      chain: {
+        id: 1,
+        rpcClient: rpcClient,
+        pollingIntervalMs: 0,
+      },
+      contracts: Contracts,
+    });
+
+    indexer.on("Counter:Increment", handleIncrement);
+    indexer.on("Counter:Decrement", handleDecrement);
+
+    indexer.subscribeToContract({
+      contract: "Counter",
+      address: "0x0000000000000000000000000000000000000001",
+    });
+
+    indexer.subscribeToContract({
+      contract: "Counter",
+      address: "0x0000000000000000000000000000000000000002",
+    });
+
+    expect(indexer.getSubscriptions()).toHaveLength(2);
+
+    indexer.unsubscribeFromContract({
+      address: "0x0000000000000000000000000000000000000001",
+    });
+
+    expect(indexer.getSubscriptions()).toHaveLength(1);
+
+    expect(indexer.getSubscriptions()[0].contractAddress).toEqual(
+      "0x0000000000000000000000000000000000000002"
+    );
+  });
+
   test("live indexing of new blocks", async () => {
     const indexer = createIndexer({
       chain: {
