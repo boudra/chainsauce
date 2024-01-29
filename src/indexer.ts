@@ -28,7 +28,6 @@ import {
 } from "@/subscriptions";
 import { AsyncEventEmitter } from "@/asyncEventEmitter";
 import { processEvents } from "@/eventProcessor";
-import { warn } from "console";
 
 const DEFAULT_MAX_BLOCK_RANGE = 1_000_000n;
 
@@ -203,7 +202,7 @@ export function createIndexer<
       // set the checkpoint target block to the target block
       state.checkpointTargetBlock = targetBlock;
 
-      const fetchedSubscriptions = await getSubscriptionEvents({
+      await getSubscriptionEvents({
         chainId: config.chain.id,
         targetBlock,
         subscriptions,
