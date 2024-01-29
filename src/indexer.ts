@@ -1,10 +1,15 @@
 import { Abi, ExtractAbiEventNames, ExtractAbiFunctionNames } from "abitype";
-import { decodeFunctionResult, encodeFunctionData, getAddress } from "viem";
+import {
+  Address,
+  decodeFunctionResult,
+  encodeFunctionData,
+  getAddress,
+} from "viem";
 
 import { RpcClient } from "@/rpc";
 import { Cache } from "@/cache";
 import { Logger, LoggerBackend, LogLevel } from "@/logger";
-import { createEventQueue } from "@/eventQueue";
+import { EventQueue } from "@/eventQueue";
 import {
   Hex,
   ToBlock,
@@ -41,7 +46,10 @@ export type Config<TAbis extends Record<string, Abi>, TContext = unknown> = {
   subscriptionStore?: SubscriptionStore;
 };
 
-export type IndexerEvents<TAbis extends Record<string, Abi>, TContext> = {
+export type IndexerEvents<
+  TAbis extends Record<string, Abi> = Record<string, Abi>,
+  TContext = unknown
+> = {
   stopped: () => void;
   started: () => void;
   error: (err: unknown) => void;
@@ -68,13 +76,17 @@ export interface Indexer<
 
   subscribeToContract(options: {
     contract: keyof TAbis;
-    address: string;
+    address: Address;
     indexedToBlock?: bigint;
+    fetchedToBlock?: bigint;
     fromBlock?: bigint;
     fromLogIndex?: number;
     toBlock?: ToBlock;
     id?: string;
   }): void;
+
+  unsubscribeFromContract(options: { address: Address }): void;
+  getSubscriptions(): Subscription[];
 
   readContract<
     TContractName extends keyof TAbis,
@@ -140,7 +152,7 @@ export function createIndexer<
 
   const contracts = config.contracts;
   const subscriptions: Map<string, Subscription> = new Map();
-  const eventQueue = createEventQueue();
+  const eventQueue = new EventQueue();
 
   async function poll() {
     if (state.type !== "running") {
@@ -197,7 +209,7 @@ export function createIndexer<
         rpc: rpcClient,
         cache: cache,
         pushEvent(event) {
-          eventQueue.queue(event);
+          eventQueue.enqueue(event);
         },
         logger,
       });
@@ -222,6 +234,7 @@ export function createIndexer<
           context: config.context,
           readContract: readContract,
           subscribeToContract: subscribeToContract,
+          unsubscribeFromContract,
         });
 
       for (const id of subscriptionIds) {
@@ -433,6 +446,14 @@ export function createIndexer<
     }) as ReadContractReturn<TAbis[TContractName], TFunctionName>;
   }
 
+  function unsubscribeFromContract({ address }: { address: Address }): void {
+    const id = `${config.chain.id}-${address}`;
+    subscriptions.delete(id);
+    if (config.subscriptionStore) {
+      config.subscriptionStore.delete(id);
+    }
+  }
+
   return Object.setPrototypeOf(
     {
       context: config.context,
@@ -440,6 +461,14 @@ export function createIndexer<
       stop,
 
       readContract,
+
+      getSubscriptions(): Subscription[] {
+        return Array.from(subscriptions.values()).map((s) => ({
+          ...s,
+        }));
+      },
+
+      unsubscribeFromContract,
 
       watch() {
         const initPromise =

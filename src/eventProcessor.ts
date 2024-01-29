@@ -4,7 +4,7 @@ import { EventQueue } from "@/eventQueue";
 import {
   Subscription,
   findLowestIndexedBlock,
-  getSubscription,
+  getSubscriptionSafe,
   updateSubscription,
 } from "@/subscriptions";
 import { Logger } from "@/logger";
@@ -29,6 +29,7 @@ export async function processEvents<
   context?: TContext;
   readContract: Indexer<TAbis, TContext>["readContract"];
   subscribeToContract: Indexer<TAbis, TContext>["subscribeToContract"];
+  unsubscribeFromContract: Indexer<TAbis, TContext>["unsubscribeFromContract"];
 }) {
   const {
     chainId,
@@ -41,6 +42,7 @@ export async function processEvents<
     readContract,
     subscriptionStore,
     subscribeToContract,
+    unsubscribeFromContract,
   } = args;
 
   const subscriptionCount = subscriptions.size;
@@ -48,10 +50,15 @@ export async function processEvents<
   let indexedToBlock = findLowestIndexedBlock(subscriptions) ?? -1n;
 
   for (const event of eventQueue.drain()) {
-    const subscription = getSubscription(
+    const subscription = getSubscriptionSafe(
       subscriptions,
       `${chainId}-${event.address}`
     );
+
+    // If the subscription is null, it means that the subscription was deleted
+    if (subscription === null) {
+      continue;
+    }
 
     const eventWithContractName = {
       ...event,
@@ -74,6 +81,9 @@ export async function processEvents<
           ...args,
           blockNumber: event.blockNumber,
         });
+      },
+      unsubscribeFromContract: (opts) => {
+        return unsubscribeFromContract(opts);
       },
       subscribeToContract: (opts) => {
         return subscribeToContract({

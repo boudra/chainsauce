@@ -35,7 +35,7 @@
     "typescript": "^5.1.5",
     "uuid": "^9.0.1",
     "viem": "^1.2.2",
-    "vitest": "^0.32.2"
+    "vitest": "^0.34.6"
   },
   "devDependencies": {
     "@types/async-retry": "^1.4.6",
