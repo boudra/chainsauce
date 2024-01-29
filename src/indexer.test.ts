@@ -213,17 +213,20 @@ describe("counter contract", () => {
 
     await indexer.indexToBlock("latest");
 
+    expect(state.events).toHaveLength(6);
+
     expect(state.counters).toEqual({
       "0x0000000000000000000000000000000000000001": 2n,
       "0x0000000000000000000000000000000000000002": 0n,
     });
   });
 
-  test("watch mode error handling", async () => {
+  test("watch mode event handler error handling", async () => {
     const indexer = createIndexer({
       chain: {
         id: 1,
         rpcClient: rpcClient,
+        pollingIntervalMs: 0,
       },
       contracts: Contracts,
     });
@@ -267,6 +270,50 @@ describe("counter contract", () => {
       indexer.watch();
     });
     expect(errorHandler).toHaveBeenCalledTimes(4);
+  });
+
+  test("watch mode rpc error handling", async () => {
+    vi.useFakeTimers();
+
+    const intervalMs = 1000;
+
+    const indexer = createIndexer({
+      chain: {
+        id: 1,
+        pollingIntervalMs: intervalMs,
+        rpcClient: {
+          ...rpcClient,
+          getLastBlockNumber: async () => {
+            throw new Error("error");
+          },
+        },
+      },
+      contracts: Contracts,
+    });
+
+    const errorHandler = vi.fn();
+
+    indexer.on("error", errorHandler);
+
+    indexer.watch();
+
+    await vi.waitFor(() => {
+      expect(errorHandler).toHaveBeenCalledTimes(1);
+    });
+
+    vi.advanceTimersByTime(intervalMs);
+
+    await vi.waitFor(() => {
+      expect(errorHandler).toHaveBeenCalledTimes(2);
+    });
+
+    vi.advanceTimersByTime(intervalMs);
+
+    await vi.waitFor(() => {
+      expect(errorHandler).toHaveBeenCalledTimes(3);
+    });
+
+    vi.useRealTimers();
   });
 
   test("live indexing of new blocks", async () => {
@@ -441,7 +488,7 @@ describe("counter contract", () => {
     expect(getLogsMock).toHaveBeenCalledTimes(0);
   });
 
-  test.only("resumable index across restarts", async () => {
+  test("resumable indexing across restarts", async () => {
     const subscriptionStore = createSqliteSubscriptionStore(":memory:");
 
     {
@@ -468,6 +515,8 @@ describe("counter contract", () => {
       });
 
       await indexer.indexToBlock("latest");
+
+      expect(state.events).toHaveLength(6);
 
       expect(state.counters).toEqual({
         "0x0000000000000000000000000000000000000001": 2n,
@@ -516,13 +565,10 @@ describe("counter contract", () => {
         address: "0x0000000000000000000000000000000000000002",
       });
 
-      console.log("subs1", indexer.getSubscriptions());
-
       await indexer.indexToBlock("latest");
 
-      console.log("subs2", indexer.getSubscriptions());
-
       expect(state.events).toHaveLength(7);
+
       expect(state.counters).toEqual({
         "0x0000000000000000000000000000000000000001": 2n,
         "0x0000000000000000000000000000000000000002": 1n,

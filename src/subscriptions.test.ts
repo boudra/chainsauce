@@ -1,9 +1,5 @@
 import { describe, test, it, expect } from "vitest";
-import {
-  getSubscriptionsToIndex,
-  getSubscriptionsToFetch,
-  Subscription,
-} from "./subscriptions";
+import { getSubscriptionsToFetch, Subscription } from "./subscriptions";
 import { zeroAddress } from "viem";
 
 const subscription = {
@@ -15,7 +11,32 @@ const subscription = {
   indexedToLogIndex: 0,
 };
 
-describe("getUnfetchedSubscriptions", () => {
+describe("getSubscriptionsToFetch", () => {
+  test("fetches from start", () => {
+    const subscriptions: Subscription[] = [
+      {
+        ...subscription,
+        fromBlock: 90n,
+        toBlock: "latest",
+        fetchedToBlock: -1n,
+        indexedToBlock: -1n,
+      },
+    ];
+
+    const result = getSubscriptionsToFetch({
+      subscriptions,
+      targetBlock: 100n,
+    });
+
+    expect(result).toEqual([
+      {
+        from: 90n,
+        to: 100n,
+        subscription: subscriptions[0],
+      },
+    ]);
+  });
+
   it("filters out fetched subscriptions", () => {
     const subscriptions: Subscription[] = [
       {
@@ -82,7 +103,7 @@ describe("getUnfetchedSubscriptions", () => {
     ]);
   });
 
-  test("only fetches starting at fromBlock", () => {
+  test("doesn't fetch if already indexed", () => {
     const subscriptions: Subscription[] = [
       {
         ...subscription,
@@ -98,13 +119,7 @@ describe("getUnfetchedSubscriptions", () => {
       targetBlock: 90n,
     });
 
-    expect(result).toEqual([
-      {
-        from: 90n,
-        to: 90n,
-        subscription: subscriptions[0],
-      },
-    ]);
+    expect(result).toEqual([]);
   });
 
   test("doesn't fetch for blocks less than fromBlock", () => {
@@ -124,114 +139,5 @@ describe("getUnfetchedSubscriptions", () => {
     });
 
     expect(result).toHaveLength(0);
-  });
-});
-
-describe("getOutdatedSubscriptions", () => {
-  it("filters out indexed subscriptions", () => {
-    const subscriptions: Subscription[] = [
-      {
-        ...subscription,
-        fromBlock: 50n,
-        toBlock: "latest",
-        fetchedToBlock: 90n,
-        indexedToBlock: 90n,
-      },
-    ];
-
-    const result = getSubscriptionsToIndex({
-      subscriptions,
-      targetBlock: 90n,
-    });
-
-    expect(result).toHaveLength(0);
-  });
-
-  it("returns outdated subscriptions", () => {
-    const subscriptions: Subscription[] = [
-      {
-        ...subscription,
-        fromBlock: 50n,
-        toBlock: "latest",
-        fetchedToBlock: 100n,
-        indexedToBlock: 90n,
-      },
-    ];
-
-    const result = getSubscriptionsToIndex({
-      subscriptions,
-      targetBlock: 100n,
-    });
-
-    expect(result).toEqual([
-      {
-        from: 91n,
-        to: 100n,
-        subscription: subscriptions[0],
-      },
-    ]);
-  });
-
-  it("doesn't index before fromBlock", () => {
-    const subscriptions: Subscription[] = [
-      {
-        ...subscription,
-        fromBlock: 50n,
-        toBlock: "latest",
-        fetchedToBlock: 90n,
-        indexedToBlock: 90n,
-      },
-    ];
-
-    const result = getSubscriptionsToIndex({
-      subscriptions,
-      targetBlock: 40n,
-    });
-
-    expect(result).toHaveLength(0);
-  });
-
-  it("it always starts at fromBlock", () => {
-    const subscriptions: Subscription[] = [
-      {
-        ...subscription,
-        fromBlock: 50n,
-        toBlock: "latest",
-        fetchedToBlock: 90n,
-        indexedToBlock: 0n,
-      },
-    ];
-
-    const result = getSubscriptionsToIndex({
-      subscriptions,
-      targetBlock: 80n,
-    });
-
-    expect(result).toEqual([
-      {
-        from: 50n,
-        to: 80n,
-        subscription: subscriptions[0],
-      },
-    ]);
-  });
-
-  it("fails if we're indexing to a block that we haven't fetched", () => {
-    const subscriptions: Subscription[] = [
-      {
-        ...subscription,
-        fromBlock: 50n,
-        toBlock: "latest",
-        fetchedToBlock: 50n,
-        indexedToBlock: 0n,
-      },
-    ];
-
-    expect(() => {
-      getSubscriptionsToIndex({
-        subscriptions,
-        targetBlock: 80n,
-      });
-    }).toThrow();
   });
 });

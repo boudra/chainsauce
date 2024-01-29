@@ -7,7 +7,6 @@ export type Subscription = {
   contractAddress: Hex;
   indexedToBlock: bigint;
   indexedToLogIndex: number;
-  fetchedToBlock: bigint;
   fromBlock: bigint;
   toBlock: ToBlock;
 };

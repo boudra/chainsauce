@@ -9,7 +9,7 @@ import {
 import { RpcClient } from "@/rpc";
 import { Cache } from "@/cache";
 import { Logger, LoggerBackend, LogLevel } from "@/logger";
-import { createEventQueue } from "@/eventQueue";
+import { EventQueue } from "@/eventQueue";
 import {
   Hex,
   ToBlock,
@@ -153,7 +153,7 @@ export function createIndexer<
 
   const contracts = config.contracts;
   const subscriptions: Map<string, Subscription> = new Map();
-  const eventQueue = createEventQueue();
+  const eventQueue = new EventQueue();
 
   async function poll() {
     if (state.type !== "running") {
@@ -210,7 +210,7 @@ export function createIndexer<
         rpc: rpcClient,
         cache: cache,
         pushEvent(event) {
-          eventQueue.queue(event);
+          eventQueue.enqueue(event);
         },
         logger,
       });
@@ -343,15 +343,12 @@ export function createIndexer<
         config.chain.id
       );
 
-      console.log("stored", storedSubscriptions);
-
       for (const subscription of storedSubscriptions) {
         subscribeToContract({
           contract: subscription.contractName as keyof TAbis,
           id: subscription.id,
           address: subscription.contractAddress,
           indexedToBlock: subscription.indexedToBlock,
-          fetchedToBlock: subscription.fetchedToBlock,
           fromBlock: subscription.fromBlock,
           fromLogIndex: subscription.indexedToLogIndex,
           toBlock: subscription.toBlock,

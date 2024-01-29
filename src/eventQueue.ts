@@ -1,50 +1,47 @@
 import { Event } from "@/types";
 
-export interface EventQueue {
-  queue(event: Event): void;
-  size(): number;
-  drain(): Generator<Event, void, unknown>;
-}
+export class EventQueue {
+  #queue: Event[];
 
-// TODO: priority queue
-export function createEventQueue() {
-  const queue: Event[] = [];
+  constructor() {
+    this.#queue = [];
+  }
 
-  return {
-    queue(event: Event) {
-      queue.push(event);
-    },
-    size() {
-      return queue.length;
-    },
-    *drain() {
-      // sort by block number and log index ascending
-      queue.sort((a, b) => {
-        if (a.blockNumber < b.blockNumber) {
-          return -1;
-        }
+  enqueue(event: Event): void {
+    this.#queue.push(event);
+  }
 
-        if (a.blockNumber > b.blockNumber) {
-          return 1;
-        }
+  size(): number {
+    return this.#queue.length;
+  }
 
-        if (a.logIndex < b.logIndex) {
-          return -1;
-        }
-
-        if (a.logIndex > b.logIndex) {
-          return 1;
-        }
-
-        return 0;
-      });
-
-      while (queue.length > 0) {
-        const event = queue.shift();
-        if (event) {
-          yield event;
-        }
+  *drain(): Generator<Event, void, unknown> {
+    // sort by block number and log index ascending
+    this.#queue.sort((a, b) => {
+      if (a.blockNumber < b.blockNumber) {
+        return -1;
       }
-    },
-  };
+
+      if (a.blockNumber > b.blockNumber) {
+        return 1;
+      }
+
+      if (a.logIndex < b.logIndex) {
+        return -1;
+      }
+
+      if (a.logIndex > b.logIndex) {
+        return 1;
+      }
+
+      return 0;
+    });
+
+    while (this.#queue.length > 0) {
+      const event = this.#queue.shift();
+      if (event) {
+        yield event;
+      }
+    }
+  }
 }
