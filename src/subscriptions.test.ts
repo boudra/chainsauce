@@ -9,6 +9,8 @@ const subscription = {
   contractName: "ContractA",
   contractAddress: zeroAddress,
   indexedToLogIndex: 0,
+  createdAt: new Date(),
+  updatedAt: new Date(),
 };
 
 describe("getSubscriptionsToFetch", () => {

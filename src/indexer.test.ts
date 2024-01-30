@@ -129,6 +129,9 @@ describe("counter contract", () => {
     getLastBlockNumber: async () => {
       return blocks[blocks.length - 1].number;
     },
+    getBlockByNumber(_args) {
+      throw new Error("Not implemented");
+    },
     getLogs: async (args: {
       address: Hex[];
       topics: [Hex[]] | [];

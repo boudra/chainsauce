@@ -83,6 +83,8 @@ export interface Indexer<
     fromLogIndex?: number;
     toBlock?: ToBlock;
     id?: string;
+    updatedAt?: Date;
+    createdAt?: Date;
   }): void;
 
   unsubscribeFromContract(options: { address: Address }): void;
@@ -328,6 +330,8 @@ export function createIndexer<
       indexedToBlock: subscribeOptions.indexedToBlock ?? -1n,
       fetchedToBlock: -1n,
       indexedToLogIndex: 0,
+      createdAt: subscribeOptions.createdAt ?? new Date(),
+      updatedAt: subscribeOptions.updatedAt ?? new Date(),
     };
 
     subscriptions.set(id, subscription);

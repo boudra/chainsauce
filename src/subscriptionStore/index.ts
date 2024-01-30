@@ -9,6 +9,8 @@ export type Subscription = {
   indexedToLogIndex: number;
   fromBlock: bigint;
   toBlock: ToBlock;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 export interface SubscriptionStore {

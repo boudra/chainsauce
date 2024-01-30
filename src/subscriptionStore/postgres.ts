@@ -11,6 +11,8 @@ type SubscriptionRow = {
   from_block: string;
   indexed_to_log_index: number;
   to_block: string;
+  created_at: number;
+  updated_at: number;
 };
 
 export function createPostgresSubscriptionStore(args: {
@@ -39,6 +41,8 @@ export function createPostgresSubscriptionStore(args: {
       indexedToBlock: BigInt(row.indexed_to_block),
       fromBlock: BigInt(row.from_block),
       toBlock: row.to_block === "latest" ? "latest" : BigInt(row.to_block),
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
     };
   }
 
@@ -54,7 +58,9 @@ export function createPostgresSubscriptionStore(args: {
           from_block BIGINT,
           to_block TEXT,
           indexed_to_block BIGINT,
-          indexed_to_log_index INTEGER
+          indexed_to_log_index INTEGER,
+          created_at TIMESTAMP NOT NULL,
+          updated_at TIMESTAMP NOT NULL
         )
         `
       );
@@ -62,8 +68,8 @@ export function createPostgresSubscriptionStore(args: {
 
     async save(subscription: Subscription): Promise<void> {
       const query = `
-        INSERT INTO ${schemaPrefix}subscriptions (id, contract_name, contract_address, from_block, indexed_to_block, indexed_to_log_index, to_block, chain_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO ${schemaPrefix}subscriptions (id, contract_name, contract_address, from_block, indexed_to_block, indexed_to_log_index, to_block, chain_id, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         ON CONFLICT (id) DO UPDATE SET
           contract_name = EXCLUDED.contract_name,
           contract_address = EXCLUDED.contract_address,
@@ -71,7 +77,8 @@ export function createPostgresSubscriptionStore(args: {
           indexed_to_block = EXCLUDED.indexed_to_block,
           indexed_to_log_index = EXCLUDED.indexed_to_log_index,
           to_block = EXCLUDED.to_block,
-          chain_id = EXCLUDED.chain_id
+          chain_id = EXCLUDED.chain_id,
+          updated_at = NOW()
       `;
       await runQuery(query, [
         subscription.id,
@@ -82,6 +89,8 @@ export function createPostgresSubscriptionStore(args: {
         subscription.indexedToLogIndex,
         subscription.toBlock,
         subscription.chainId,
+        subscription.createdAt.toISOString(),
+        subscription.updatedAt.toISOString(),
       ]);
     },
 
@@ -93,7 +102,8 @@ export function createPostgresSubscriptionStore(args: {
       UPDATE ${schemaPrefix}subscriptions
       SET
         indexed_to_block = $1,
-        indexed_to_log_index = $2
+        indexed_to_log_index = $2,
+        updated_at = NOW()
       WHERE id = $3
       `;
 

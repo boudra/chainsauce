@@ -1,25 +1,20 @@
 import { decodeEventLog, fromHex, getAddress } from "viem";
 
 import { Abi, Address } from "abitype";
-import { Event, Hex, ToBlock } from "@/types";
+import { Event, Hex } from "@/types";
 import { Logger } from "@/logger";
 import { JsonRpcRangeTooWideError, Log, RpcClient } from "@/rpc";
-import { SubscriptionStore } from "@/subscriptionStore";
+import {
+  SubscriptionStore,
+  Subscription as SubscriptionRow,
+} from "@/subscriptionStore";
 import { Cache } from "@/cache";
 
 const MAX_CONTRACT_ADDRESSES_PER_GET_LOGS_REQUEST = 25;
 
-export type Subscription = {
-  id: string;
-  chainId: number;
+export type Subscription = SubscriptionRow & {
   abi: Abi;
-  contractName: string;
-  contractAddress: `0x${string}`;
-  toBlock: ToBlock;
-  fromBlock: bigint;
   fetchedToBlock: bigint;
-  indexedToBlock: bigint;
-  indexedToLogIndex: number;
 };
 
 export type Subscriptions = Map<string, Subscription>;
@@ -94,6 +89,8 @@ export async function saveSubscriptionsToStore(
       indexedToBlock: subscription.indexedToBlock,
       indexedToLogIndex: subscription.indexedToLogIndex,
       toBlock: subscription.toBlock,
+      createdAt: subscription.createdAt,
+      updatedAt: subscription.updatedAt,
     };
 
     // TODO: saveMany?

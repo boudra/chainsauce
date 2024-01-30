@@ -48,6 +48,11 @@ export class JsonRpcRangeTooWideError extends Error {
 
 export interface RpcClient {
   getLastBlockNumber(): Promise<bigint>;
+  getBlockByNumber(args: { number: bigint }): Promise<{
+    hash: Hex;
+    number: bigint;
+    timestamp: number;
+  } | null>;
   getLogs(args: {
     address: Hex[] | Hex;
     topics: Hex[] | Hex[][];
@@ -112,6 +117,9 @@ export function createConcurrentRpcClientWithRetry(args: {
   return {
     async getLastBlockNumber(): Promise<bigint> {
       return queueRpcCall(() => client.getLastBlockNumber());
+    },
+    async getBlockByNumber(args) {
+      return queueRpcCall(() => client.getBlockByNumber(args));
     },
     async getLogs(args): Promise<Log[]> {
       return queueRpcCall(() => client.getLogs(args));
@@ -261,6 +269,29 @@ export function createHttpRpcBaseClient(args: {
       const response = await rpcCall<string>("eth_blockNumber", []);
 
       return BigInt(response);
+    },
+
+    async getBlockByNumber(args: {
+      number: bigint;
+    }): Promise<{ number: bigint; hash: Hex; timestamp: number } | null> {
+      const response = await rpcCall<{
+        number: Hex;
+        hash: Hex;
+        timestamp: Hex;
+      } | null>("eth_getBlockByNumber", [
+        `0x${args.number.toString(16)}`,
+        false,
+      ]);
+
+      if (response === null) {
+        return null;
+      }
+
+      return {
+        number: BigInt(response.number),
+        hash: response.hash,
+        timestamp: parseInt(response.timestamp, 16),
+      };
     },
 
     async readContract(args: {
