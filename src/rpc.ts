@@ -256,7 +256,8 @@ export function createHttpRpcBaseClient(args: {
             e.cause.errorResponse.message.includes("block range is too wide") ||
             e.cause.errorResponse.message.includes(
               "exceed maximum block range"
-            ))
+            ) ||
+            e.cause.errorResponse.message.includes("timeout"))
         ) {
           throw new JsonRpcRangeTooWideError(e);
         } else {
