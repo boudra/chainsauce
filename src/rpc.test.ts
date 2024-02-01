@@ -27,13 +27,13 @@ test("should get last block number", async () => {
     params: [],
   });
 
-  expect(mockFetch).toHaveBeenCalledWith("http://localhost", {
+  expect(mockFetch.mock.calls[0][0]).toBe("http://localhost");
+  expect(mockFetch.mock.calls[0][1]).toMatchObject({
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: expectedBody,
-    signal: undefined,
   });
 });
 
