@@ -130,28 +130,19 @@ export function createConcurrentRpcClientWithRetry(args: {
   };
 }
 
-export function createHttpRpcClient(args: {
-  retryDelayMs?: number;
-  maxRetries?: number;
-  maxConcurrentRequests?: number;
-  url: string;
-  fetch?: typeof globalThis.fetch;
-  onRequest?: (request: {
-    method: string;
-    params: unknown;
-    url: string;
-  }) => void;
-}): RpcClient {
+export function createHttpRpcClient(
+  args: {
+    retryDelayMs?: number;
+    maxRetries?: number;
+    maxConcurrentRequests?: number;
+  } & Parameters<typeof createHttpRpcBaseClient>[0]
+): RpcClient {
   const retryDelayMs = args.retryDelayMs ?? 1000;
   const maxConcurrentRequests = args.maxConcurrentRequests ?? 10;
   const maxRetries = args.maxRetries ?? 5;
 
   return createConcurrentRpcClientWithRetry({
-    client: createHttpRpcBaseClient({
-      url: args.url,
-      fetch: args.fetch,
-      onRequest: args.onRequest,
-    }),
+    client: createHttpRpcBaseClient(args),
     retryDelayMs,
     maxRetries,
     maxConcurrentRequests,
@@ -161,6 +152,7 @@ export function createHttpRpcClient(args: {
 export function createHttpRpcBaseClient(args: {
   url: string;
   fetch?: typeof globalThis.fetch;
+  timeout?: number;
   onRequest?: (request: {
     method: string;
     params: unknown;
@@ -183,43 +175,60 @@ export function createHttpRpcBaseClient(args: {
       args.onRequest({ method, params, url });
     }
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body,
-    });
+    const controller = new AbortController();
 
-    if (response.status !== 200) {
-      throw new JsonRpcError({
-        url,
-        method,
-        params,
-        responseStatusCode: response.status,
+    let timeout = null;
+
+    if (args.timeout !== undefined) {
+      timeout = setTimeout(() => {
+        controller.abort();
+      }, args.timeout);
+    }
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body,
+        signal: controller.signal,
       });
+
+      if (response.status !== 200) {
+        throw new JsonRpcError({
+          url,
+          method,
+          params,
+          responseStatusCode: response.status,
+        });
+      }
+
+      const contentType = response.headers.get("Content-Type");
+
+      if (!contentType || !contentType.includes("application/json")) {
+        const body = await response.text();
+        throw new Error(`Invalid response: ${body}`);
+      }
+
+      const json = await response.json();
+
+      if ("error" in json) {
+        throw new JsonRpcError({
+          url,
+          method,
+          params,
+          errorResponse: json.error,
+          responseStatusCode: response.status,
+        });
+      }
+
+      return json.result;
+    } finally {
+      if (timeout !== null) {
+        clearTimeout(timeout);
+      }
     }
-
-    const contentType = response.headers.get("Content-Type");
-
-    if (!contentType || !contentType.includes("application/json")) {
-      const body = await response.text();
-      throw new Error(`Invalid response: ${body}`);
-    }
-
-    const json = await response.json();
-
-    if ("error" in json) {
-      throw new JsonRpcError({
-        url,
-        method,
-        params,
-        errorResponse: json.error,
-        responseStatusCode: response.status,
-      });
-    }
-
-    return json.result;
   }
 
   return {
