@@ -33,6 +33,7 @@ test("should get last block number", async () => {
       "Content-Type": "application/json",
     },
     body: expectedBody,
+    signal: undefined,
   });
 });
 

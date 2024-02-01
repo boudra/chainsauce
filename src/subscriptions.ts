@@ -319,7 +319,6 @@ export async function getSubscriptionEvents(args: {
   }
 
   const fetchPlan = createFetchPlan(subscriptionsToFetch);
-
   for (const {
     from,
     to,
@@ -337,6 +336,10 @@ export async function getSubscriptionEvents(args: {
         logger,
         onLogs: async ({ from: chunkFromBlock, to: chunkToBlock, logs }) => {
           const eventsPerContract = new Map<Address, Event[]>();
+
+          for (const address of addresses) {
+            eventsPerContract.set(address, []);
+          }
 
           for (const log of logs) {
             const logAddress = getAddress(log.address);
@@ -389,10 +392,11 @@ export async function getSubscriptionEvents(args: {
             const events = eventsPerContract.get(subscription.contractAddress);
 
             if (events === undefined) {
-              eventsPerContract.set(subscription.contractAddress, [event]);
-            } else {
-              events.push(event);
+              throw new Error("unreachable");
             }
+
+            events.push(event);
+
             pushEvent(event);
           }
 
