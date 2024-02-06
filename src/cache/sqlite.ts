@@ -191,8 +191,8 @@ export function createSqliteCache(dbPath: string): Cache {
 
         // Remove old overlapping ranges
         db.prepare(
-          `DELETE FROM logRanges WHERE chainId = ? AND address = ? AND fromBlock >= ? AND toBlock <= ?`
-        ).run(chainId, address, newFrom, newTo);
+          `DELETE FROM logRanges WHERE chainId = ? AND address = ?`
+        ).run(chainId, address);
 
         // Insert the new merged range
         db.prepare(
