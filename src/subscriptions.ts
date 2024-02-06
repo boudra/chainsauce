@@ -295,21 +295,26 @@ export async function getSubscriptionEvents(args: {
             pushEvent(event);
           }
 
-          const cachedToBlock = result.toBlock + 1n;
+          const fetchRanges = [];
 
-          // we got all events from the cache
-          if (cachedToBlock >= to) {
-            return [];
+          if (result.fromBlock > from) {
+            fetchRanges.push({
+              from: from,
+              to: result.fromBlock - 1n,
+              subscription: subscription,
+            });
+          }
+
+          if (result.toBlock < to) {
+            fetchRanges.push({
+              from: result.toBlock + 1n,
+              to: to,
+              subscription: subscription,
+            });
           }
 
           // fetch the remaining events
-          return [
-            {
-              from: cachedToBlock,
-              to: to,
-              subscription: subscription,
-            },
-          ];
+          return fetchRanges;
         }
 
         // no cache at all, fetch all events
