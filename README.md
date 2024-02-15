@@ -165,4 +165,4 @@ const indexer = createIndexer({
 
 ## Complete examples
 
-- [https://github.com/gitcoinco/allo-indexer](https://github.com/gitcoinco/grants-stack-indexer)
+- [https://github.com/gitcoinco/grants-stack-indexer](https://github.com/gitcoinco/grants-stack-indexer)
