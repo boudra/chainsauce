@@ -5,7 +5,7 @@ export { Hex, ToBlock, Event } from "@/types";
 
 export { Database } from "@/storage";
 export { createJsonDatabase } from "@/storage/json";
-export { Cache } from "@/cache";
+export { Cache, Block } from "@/cache";
 export { createSqliteCache } from "@/cache/sqlite";
 
 export { SubscriptionStore } from "@/subscriptionStore";
