@@ -12,6 +12,8 @@ import { AsyncEventEmitter } from "@/asyncEventEmitter";
 import { Indexer, IndexerEvents } from "@/indexer";
 import { EventHandler } from "@/types";
 import { SubscriptionStore } from "./subscriptionStore";
+import { Cache } from "@/cache";
+import { RpcClient } from "@/rpc";
 
 export async function processEvents<
   TAbis extends Record<string, Abi>,
@@ -30,6 +32,8 @@ export async function processEvents<
   readContract: Indexer<TAbis, TContext>["readContract"];
   subscribeToContract: Indexer<TAbis, TContext>["subscribeToContract"];
   unsubscribeFromContract: Indexer<TAbis, TContext>["unsubscribeFromContract"];
+  cache: Cache | null;
+  rpcClient: RpcClient;
 }) {
   const {
     chainId,
@@ -43,6 +47,8 @@ export async function processEvents<
     subscriptionStore,
     subscribeToContract,
     unsubscribeFromContract,
+    cache,
+    rpcClient,
   } = args;
 
   const subscriptionCount = subscriptions.size;
@@ -84,6 +90,38 @@ export async function processEvents<
       },
       unsubscribeFromContract: (opts) => {
         return unsubscribeFromContract(opts);
+      },
+      getBlock: async () => {
+        const cachedBlock = await cache?.getBlockByNumber({
+          chainId: chainId,
+          blockNumber: event.blockNumber,
+        });
+
+        if (cachedBlock) {
+          return cachedBlock;
+        }
+
+        const rpcBlock = await rpcClient.getBlockByNumber({
+          number: event.blockNumber,
+        });
+
+        // should not happen
+        if (!rpcBlock) {
+          throw new Error(`Block ${event.blockNumber} not found`);
+        }
+
+        const block = {
+          chainId: chainId,
+          blockNumber: event.blockNumber,
+          blockHash: rpcBlock.hash,
+          timestamp: rpcBlock.timestamp,
+        };
+
+        if (cache) {
+          await cache?.insertBlock(block);
+        }
+
+        return block;
       },
       subscribeToContract: (opts) => {
         return subscribeToContract({

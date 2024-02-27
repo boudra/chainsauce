@@ -7,6 +7,7 @@ import {
   ExtractAbiFunctionNames,
 } from "abitype";
 import { Address, GetEventArgs } from "viem";
+import { Block } from "@/cache";
 
 export type Hex = `0x${string}`;
 export type ToBlock = "latest" | bigint;
@@ -83,6 +84,8 @@ export type EventHandlerArgs<
       address: Address;
     }
   ): void;
+
+  getBlock(this: void): Promise<Block>;
 };
 
 export type EventHandler<

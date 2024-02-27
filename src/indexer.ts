@@ -237,6 +237,8 @@ export function createIndexer<
           readContract: readContract,
           subscribeToContract: subscribeToContract,
           unsubscribeFromContract,
+          cache,
+          rpcClient,
         });
 
       for (const id of subscriptionIds) {
