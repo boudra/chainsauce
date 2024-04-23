@@ -3,6 +3,7 @@ import {
   createHttpRpcClient,
   JsonRpcError,
   JsonRpcRangeTooWideError,
+  RpcError,
 } from "./rpc";
 
 test("should get last block number", async () => {
@@ -103,7 +104,7 @@ test("should retry on 500 status", async () => {
   });
 
   const promise = rpcClient.getLastBlockNumber();
-  await expect(promise).rejects.toThrow(JsonRpcError);
+  await expect(promise).rejects.toThrow(RpcError);
   expect(mockFetch).toHaveBeenCalledTimes(5);
 });
 
@@ -122,7 +123,7 @@ test("should retry on 429 status", async () => {
   });
 
   const promise = rpcClient.getLastBlockNumber();
-  await expect(promise).rejects.toThrow(JsonRpcError);
+  await expect(promise).rejects.toThrow(RpcError);
   expect(mockFetch).toHaveBeenCalledTimes(5);
 });
 

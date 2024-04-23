@@ -22,6 +22,14 @@ type JsonRpcErrorCause = {
   errorResponse?: { message: string; code: number; data: unknown };
 };
 
+export class RpcError extends Error {
+  cause: unknown;
+  constructor(msg: string, cause: unknown) {
+    super(msg);
+    this.cause = cause;
+  }
+}
+
 export class JsonRpcError extends Error {
   cause: JsonRpcErrorCause;
   constructor(cause: JsonRpcErrorCause) {
@@ -77,7 +85,7 @@ export function createConcurrentRpcClientWithRetry(args: {
 
   const queue = fastq.promise(async (task: () => Promise<unknown>) => {
     return retry(
-      async (bail) => {
+      async (bail, retryCount) => {
         try {
           return await task();
         } catch (error) {
@@ -99,7 +107,10 @@ export function createConcurrentRpcClientWithRetry(args: {
             return;
           }
 
-          throw error;
+          throw new RpcError(
+            `RPC call failed after ${retryCount} retries`,
+            error
+          );
         }
       },
       {
