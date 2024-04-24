@@ -99,7 +99,13 @@ export function createPostgresCache(args: {
         await client.query(
           `INSERT INTO ${tableName(
             "blocks"
-          )} (chainId, blockNumber, blockHash, timestamp) VALUES ($1, $2, $3, $4)`,
+          )} (chainId, blockNumber, blockHash, timestamp) VALUES ($1, $2, $3, $4)
+            ON CONFLICT (chainId, blockhash) DO UPDATE SET
+              blockHash = EXCLUDED.blockHash,
+              timestamp = EXCLUDED.timestamp,
+              blockNumber = EXCLUDED.blocknumber,
+              chainId = EXCLUDED.chainId
+          `,
           [
             args.chainId,
             args.blockNumber.toString(),
