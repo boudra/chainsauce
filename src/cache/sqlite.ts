@@ -141,6 +141,9 @@ export function createSqliteCache(dbPath: string): Cache {
   }
 
   return {
+    async migrate() {
+      // empty
+    },
     async insertEvents(args: {
       chainId: number;
       events: Event[];

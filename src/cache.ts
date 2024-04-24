@@ -8,6 +8,7 @@ export interface Block {
 }
 
 export interface Cache {
+  migrate(): Promise<void>;
   insertEvents(args: {
     chainId: number;
     events: Event[];
@@ -41,6 +42,5 @@ export interface Cache {
     chainId: number;
     blockNumber: bigint;
   }): Promise<Block | null>;
-
   insertBlock(args: Block): Promise<void>;
 }

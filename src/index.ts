@@ -7,6 +7,7 @@ export { Database } from "@/storage";
 export { createJsonDatabase } from "@/storage/json";
 export { Cache, Block } from "@/cache";
 export { createSqliteCache } from "@/cache/sqlite";
+export { createPostgresCache } from "@/cache/postgres";
 
 export { SubscriptionStore } from "@/subscriptionStore";
 export { createSqliteSubscriptionStore } from "@/subscriptionStore/sqlite";

@@ -367,6 +367,10 @@ export function createIndexer<
         );
       }
     }
+
+    if (config.cache) {
+      await config.cache.migrate();
+    }
   }
 
   async function stop() {
