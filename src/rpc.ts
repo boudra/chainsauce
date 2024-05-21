@@ -274,6 +274,7 @@ export function createHttpRpcBaseClient(args: {
               "Log response size exceeded"
             ) ||
             e.cause.errorResponse.message.includes("block range is too wide") ||
+            e.cause.errorResponse.message.includes("block range is too large") ||
             e.cause.errorResponse.message.includes(
               "exceed maximum block range"
             ) ||
