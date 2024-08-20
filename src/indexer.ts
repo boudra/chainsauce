@@ -38,6 +38,7 @@ export type Config<TAbis extends Record<string, Abi>, TContext = unknown> = {
     rpcClient: RpcClient;
     pollingIntervalMs?: number;
     maxBlockRange?: bigint;
+    lagBlocks?: bigint; // New field for lag indexing strategy
   };
   context?: TContext;
   logLevel?: keyof typeof LogLevel;
@@ -176,6 +177,11 @@ export function createIndexer<
       //  latest is a moving target
       if (state.finalTargetBlock === "latest") {
         finalTargetBlock = await rpcClient.getLastBlockNumber();
+        
+        // Apply lag if specified
+        if (config.chain.lagBlocks) {
+          finalTargetBlock = applyLag(finalTargetBlock);
+        }
       } else {
         finalTargetBlock = state.finalTargetBlock;
       }
@@ -464,6 +470,14 @@ export function createIndexer<
     }
   }
 
+  // Helper function to apply lag
+  function applyLag(blockNumber: bigint): bigint {
+    if (config.chain.lagBlocks && blockNumber > BigInt(config.chain.lagBlocks)) {
+      return blockNumber - BigInt(config.chain.lagBlocks);
+    }
+    return 0n;
+  }
+
   return Object.setPrototypeOf(
     {
       context: config.context,
@@ -524,6 +538,11 @@ export function createIndexer<
 
         if (target === "latest") {
           targetBlock = await rpcClient.getLastBlockNumber();
+          
+          // Apply lag if specified
+          if (config.chain.lagBlocks) {
+            targetBlock = applyLag(targetBlock);
+          }
         } else {
           targetBlock = target;
         }

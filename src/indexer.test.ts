@@ -462,6 +462,60 @@ describe("counter contract", () => {
     });
   });
 
+  test("lagBlocks config option", async () => {
+    const mockRpcClient = {
+      ...rpcClient,
+      getLastBlockNumber: vi.fn()
+        .mockResolvedValueOnce(4n)
+        .mockResolvedValueOnce(4n)
+        .mockResolvedValue(4n)
+        .mockResolvedValue(6n)
+    };
+
+    const indexer = createIndexer({
+      chain: {
+        id: 1,
+        rpcClient: mockRpcClient,
+        lagBlocks: 2n,
+      },
+      contracts: Contracts,
+    });
+
+    indexer.on("Counter:Increment", handleIncrement);
+    indexer.on("Counter:Decrement", handleDecrement);
+
+    indexer.subscribeToContract({
+      contract: "Counter",
+      address: "0x0000000000000000000000000000000000000001",
+    });
+
+
+    let tryTwice: boolean;
+    indexer.on("progress", ({ currentBlock, targetBlock }) => {
+      console.log(currentBlock);
+      console.log(targetBlock);
+
+      if (currentBlock == targetBlock && targetBlock == 4n){
+        if (tryTwice){
+          indexer.stop();
+        }
+        tryTwice = true;
+      }
+    });
+
+    await new Promise<void>((resolve) => {
+      indexer.on("stopped", () => {
+        resolve();
+        expect(tryTwice).toBe(true);
+      });
+
+      indexer.watch();
+    });
+
+  });
+
+  
+
   test("resumable index with the same indexer instance", async () => {
     const indexer = createIndexer({
       chain: {
